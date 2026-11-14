@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# model weights and generated data
+*.pt
+*.pth
+runs/
+data/
+results/
+
+# RAI / KOMO runtime output
+z.*
+*.log
+
+.vscode/
+.idea/
+.DS_Store

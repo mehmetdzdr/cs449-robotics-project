@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "conveyor-sort"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "robotic",          # RAI / KOMO Python bindings
+    "numpy",
+    "opencv-python",    # HSV baseline
+]
+
+[project.optional-dependencies]
+learning = [
+    "ultralytics",      # YOLO
+    "segment-anything", # SAM
+]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
