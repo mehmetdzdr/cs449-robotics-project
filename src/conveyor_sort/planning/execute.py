@@ -29,3 +29,8 @@ def grasp(world: World, robot_id: int, box: str, tolerance: float = 0.01) -> boo
         return False
     world.conveyor.attach(box, gripper)
     return True
+
+
+def release(world: World, box: str, region: str) -> None:
+    """Kinematic release: the box stays where it is and becomes a child of the region."""
+    world.conveyor.attach(box, region)
