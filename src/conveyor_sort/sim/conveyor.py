@@ -82,14 +82,24 @@ class Conveyor:
         """Re-parent a box (to a gripper when grasped, to a region when placed), keeping its world pose."""
         self.C.getFrame(box).setParent(self.C.getFrame(parent), True)
 
+    def remove(self, box: str) -> None:
+        """Take a box out of the simulation.
+
+        The frame is not deleted: after `delFrame`, RAI's collision engine keeps stale geometry and KOMO
+        returns wrong results or crashes. The box is parked below the floor instead, each at its own spot.
+        """
+        frame = self.C.getFrame(box)
+        frame.unLink()
+        frame.setPosition([0.1 * int(box.split("_")[1]), 0.0, -1.0])
+        del self.colors[box]
+
     def step(self, dt: float) -> None:
         """Advance the belt by dt: move boxes, drop the ones past the end, spawn new ones by spacing."""
         advance = self.config.speed * dt
         for name in self.on_belt():
             frame = self.C.getFrame(name)
             if frame.getPosition()[0] + advance > self.geometry.x_end:
-                self.C.delFrame(frame)
-                del self.colors[name]
+                self.remove(name)
                 self.missed += 1
             else:
                 frame.setRelativePosition(frame.getRelativePosition() + [advance, 0, 0])

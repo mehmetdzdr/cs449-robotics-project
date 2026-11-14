@@ -44,7 +44,8 @@ pip install -e ".[dev]"            # core: robotic (RAI), numpy, opencv
 pip install -e ".[learning]"       # optional: YOLO, SAM
 python scripts/check_env.py        # must end with ENVIRONMENT OK
 python scripts/view_scene.py       # opens the scene in the RAI viewer
-python scripts/run_conveyor.py --view   # boxes moving on the belt (no robots yet)
+python scripts/run_conveyor.py --view   # boxes moving on the belt, no robots
+python scripts/run_sorting.py --view    # Robot 1 sorts colored boxes (add --detector hsv for vision)
 pytest
 ```
 

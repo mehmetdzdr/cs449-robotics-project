@@ -95,7 +95,8 @@ def test_box_leaving_belt_end_is_removed_and_counted():
         conveyor.step(0.05)
     assert conveyor.on_belt() == []
     assert conveyor.missed == 1
-    assert not any(n.startswith("box_") for n in C.getFrameNames())
+    assert conveyor.colors == {}
+    assert C.getFrame("box_0").getPosition()[2] < 0          # parked below the floor, not deleted
 
 
 def test_grasped_box_is_not_moved_by_belt():
