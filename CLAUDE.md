@@ -34,6 +34,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `sim/ground_truth.py` | `GroundTruthDetector(world).detect()` |
 | `perception/camera.py` | `Camera.capture()` returns `Observation` (rgb, depth, GT segmentation, intrinsics, pose) |
 | `perception/localization.py` | `mask_to_world(mask, obs)`: mask + depth to box centre in world frame |
+| `perception/hsv.py` | `HsvDetector(belt).detect(obs)`: HSV thresholds in the belt ROI, blobs, height check |
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
 | `prediction/tracker.py` | `Tracker.update(detections, time)`: association + constant-velocity fit |
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
@@ -45,6 +46,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 - Grasping is kinematic by team decision (no physics engine): the box is attached to the gripper.
 - Stationary pick-and-place sequence: `plan_pick`, `grasp`, `plan_lift`, `plan_place`, `release`, `plan_lift` (retreat up, otherwise the fingers hit the box), `plan_home`; see `tests/test_place.py`.
 - `plan_moving_pick` path must be executed in exactly `pick_time - now` seconds; the planner treats the box as static at its current position for collision checks.
+- HSV detector: gray blobs on the robot arms are rejected by a height check from depth; touching boxes of the same color merge into one blob (not handled).
 - `World.step()` spawns a box on the very first step even with a huge `spacing`.
 - Belt: along +x, x in [-1.1, 1.1], centre y = 0.2, surface z = 0.62. Boxes: 6 cm cubes, kinematic motion (no physics).
 - Reach on the belt centre line: Robot 1 x in [-1.0, 0.2], Robot 2 x in [-0.2, 1.0]. Regions A, C: Robot 1 only; B: both; bin_gray: Robot 2 only.
@@ -57,10 +59,10 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 
 ## Status (last updated 2026-11-15)
 
-Done and merged (PRs #44 to #64, 72 tests, CI green):
-M0 #2 #3 · M1 #4 to #9 · M2 #10 to #14 (complete) · M3 #15 #16 #18 · M4 #23 #24
+Done and merged (PRs #44 to #65, 74 tests, CI green):
+M0 #2 #3 · M1 #4 to #9 · M2 #10 to #14 (complete) · M3 #15 #16 #17 #18 · M4 #23 #24
 
-Measured: localization error 1.6 mm mean / 2.8 mm max (GT masks); prediction error 4.8 mm at 2 s with 2 mm synthetic noise; KOMO pick planning about 0.05 s; a full pick-and-place needs about 0.25 s planning and 10 to 11 s of simulation time.
+Measured: localization error 1.6 mm mean / 2.8 mm max (GT masks); HSV detector 2.0 mm mean / 3.5 mm max, no misses or false positives on 124 well-visible boxes; prediction error 4.8 mm at 2 s with 2 mm synthetic noise; KOMO pick planning about 0.05 s; a full pick-and-place needs about 0.25 s planning and 10 to 11 s of simulation time.
 
 Open:
 - #1 stays open until every member has run `check_env.py` on their own machine.
@@ -70,4 +72,4 @@ Open:
 
 1. #26 single-robot autonomous sorting loop with the ground-truth detector (needs #22 detector factory first, or use `GroundTruthDetector` directly). `pick_and_place` blocks until the arm is home: pass `on_step` to keep the tracker updated meanwhile. For two arms moving at once (#30) it has to become non-blocking.
 2. #19 YOLO fine-tune: must run on a GPU machine with internet for pretrained weights; dataset generator is ready. Then #20 SAM, #22 detector factory.
-3. #17 HSV baseline, #25 Kalman, then M5 onwards.
+3. #25 Kalman, then M5 onwards.
