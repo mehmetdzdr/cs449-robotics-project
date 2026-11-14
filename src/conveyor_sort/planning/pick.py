@@ -37,3 +37,22 @@ def plan_pick(C: ry.Config, robot_id: int, box: str, steps: int = 20) -> Plan:
     start = time.perf_counter()
     result = ry.NLP_Solver(komo.nlp(), verbose=0).solve()
     return Plan(komo.getPath(), bool(result.feasible), time.perf_counter() - start)
+
+
+def plan_lift(C: ry.Config, robot_id: int, height: float = 0.15, steps: int = 10) -> Plan:
+    """Plan a straight vertical lift of the gripper (and a box attached to it) by `height`."""
+    gripper = f"{ROBOT_PREFIX[robot_id]}gripper"
+    target = C.getFrame(gripper).getPosition() + [0, 0, height]
+    komo = ry.KOMO(C, 1, steps, 2, True)
+    komo.addControlObjective([], 2, 1e0)
+    komo.addControlObjective([], 0, 1e-2)
+    komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
+    komo.addObjective([], ry.FS.jointLimits, [], ry.OT.ineq)
+    komo.addObjective([], ry.FS.vectorZ, [gripper], ry.OT.eq, [1e1], [0, 0, 1])
+    komo.addObjective([], ry.FS.position, [gripper], ry.OT.eq, [[1e1, 0, 0], [0, 1e1, 0]], target)   # stay on the vertical line
+    komo.addObjective([1.0], ry.FS.position, [gripper], ry.OT.eq, [1e1], target)
+    komo.addObjective([1.0], ry.FS.qItself, [], ry.OT.eq, [1e1], [], 1)
+
+    start = time.perf_counter()
+    result = ry.NLP_Solver(komo.nlp(), verbose=0).solve()
+    return Plan(komo.getPath(), bool(result.feasible), time.perf_counter() - start)

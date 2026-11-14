@@ -36,10 +36,13 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `perception/localization.py` | `mask_to_world(mask, obs)`: mask + depth to box centre in world frame |
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
 | `prediction/tracker.py` | `Tracker.update(detections, time)`: association + constant-velocity fit |
-| `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box) |
+| `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_lift` |
+| `planning/execute.py` | `execute_path(world, path, duration)`, `grasp(world, robot_id, box)` (kinematic) |
 
 ## Facts worth knowing
 
+- Grasping is kinematic by team decision (no physics engine): the box is attached to the gripper.
+- `World.step()` spawns a box on the very first step even with a huge `spacing`.
 - Belt: along +x, x in [-1.1, 1.1], centre y = 0.2, surface z = 0.62. Boxes: 6 cm cubes, kinematic motion (no physics).
 - Reach on the belt centre line: Robot 1 x in [-1.0, 0.2], Robot 2 x in [-0.2, 1.0]. Regions A, C: Robot 1 only; B: both; bin_gray: Robot 2 only.
 - Top camera: 1280 x 720, 3.4 m high, looks straight down; a box is about 30 x 30 px, one pixel about 2.2 mm.
@@ -51,8 +54,8 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 
 ## Status (last updated 2026-11-15)
 
-Done and merged (PRs #44 to #59, 50 tests, CI green):
-M0 #2 #3 · M1 #4 to #9 · M2 #10 · M3 #15 #16 #18 · M4 #23 #24
+Done and merged (PRs #44 to #61, 55 tests, CI green):
+M0 #2 #3 · M1 #4 to #9 · M2 #10 #11 · M3 #15 #16 #18 · M4 #23 #24
 
 Measured: localization error 1.6 mm mean / 2.8 mm max (GT masks); prediction error 4.8 mm at 2 s with 2 mm synthetic noise; KOMO pick planning about 0.05 s.
 
@@ -62,7 +65,6 @@ Open:
 
 ## Next steps, in order
 
-1. **#11 Execute trajectory and grasp.** Team decision needed first: kinematic grasp (attach box to gripper; consistent with the kinematic conveyor) or physics engine (issue text says "physically lifted").
-2. #12 place into region, #13 pick a moving box at a predicted intercept (use `Track.predict`), #14 `plan_pick_place(C, assignment)`.
-3. #19 YOLO fine-tune: must run on a GPU machine with internet for pretrained weights; dataset generator is ready. Then #20 SAM, #22 detector factory.
-4. #17 HSV baseline, #25 Kalman, then M5 onwards.
+1. #12 place into region, #13 pick a moving box at a predicted intercept (use `Track.predict`), #14 `plan_pick_place(C, assignment)`.
+2. #19 YOLO fine-tune: must run on a GPU machine with internet for pretrained weights; dataset generator is ready. Then #20 SAM, #22 detector factory.
+3. #17 HSV baseline, #25 Kalman, then M5 onwards.
