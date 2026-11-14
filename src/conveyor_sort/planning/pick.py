@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import robotic as ry
 
+from conveyor_sort.interfaces import Track
 from conveyor_sort.sim.conveyor import BOX_SIZE
 from conveyor_sort.sim.scene import HOME_Q, ROBOT_PREFIX
 
@@ -86,3 +87,31 @@ def plan_home(C: ry.Config, robot_id: int, steps: int = 20) -> Plan:
     komo.addObjective([1.0], ry.FS.qItself, [], ry.OT.eq, [1e1], target)
     komo.addObjective([1.0], ry.FS.qItself, [], ry.OT.eq, [1e1], [], 1)
     return _solve(komo)
+
+
+def plan_moving_pick(C: ry.Config, robot_id: int, track: Track, now: float, pick_time: float, steps: int = 20) -> Plan:
+    """Plan a grasp of a moving box: the gripper meets the box at `pick_time` where the track predicts it.
+
+    The path must be executed in exactly `pick_time - now` seconds. During the last 20 % the gripper
+    is already above the box and follows its predicted motion while descending, so the fingers come
+    down around the moving box instead of sweeping through it. Infeasible if the predicted positions
+    are out of reach.
+    """
+    gripper = f"{ROBOT_PREFIX[robot_id]}gripper"
+    target = C.addFrame("_pick_target").setPosition(track.predict(pick_time))   # world-aligned, like the boxes
+    try:
+        komo = ry.KOMO(C, 1, steps, 2, True)
+        komo.addControlObjective([], 2, 1e0)
+        komo.addControlObjective([], 0, 1e-2)
+        komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
+        komo.addObjective([], ry.FS.jointLimits, [], ry.OT.ineq)
+        komo.addObjective([0.8, 1.0], ry.FS.vectorZ, [gripper], ry.OT.eq, [1e1], [0, 0, 1])
+        komo.addObjective([0.8, 1.0], ry.FS.scalarProductXY, [gripper, target.name], ry.OT.eq, [1e1])
+        for k in range(round(0.8 * steps), steps + 1):          # follow the box in xy, waypoint by waypoint
+            phase = k / steps
+            predicted = track.predict(now + phase * (pick_time - now))
+            komo.addObjective([phase], ry.FS.position, [gripper], ry.OT.eq, [[1e1, 0, 0], [0, 1e1, 0]], predicted)
+        komo.addObjective([1.0], ry.FS.positionDiff, [gripper, target.name], ry.OT.eq, [1e1])
+        return _solve(komo)
+    finally:
+        C.delFrame(target)
