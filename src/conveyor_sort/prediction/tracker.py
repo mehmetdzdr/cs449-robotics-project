@@ -1,4 +1,5 @@
-"""Multi-object tracker: associates detections over time into tracks with stable IDs."""
+"""Multi-object tracker: associates detections over time into tracks with stable IDs and
+estimates each track's velocity with a constant-velocity model."""
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -13,19 +14,23 @@ class _TrackState:
     times: list[float] = field(default_factory=list)          # timestamps of matched detections
     positions: list[np.ndarray] = field(default_factory=list)  # their positions
 
-    def velocity(self) -> np.ndarray:
-        if len(self.times) < 2:
-            return np.zeros(3)
-        return (self.positions[-1] - self.positions[-2]) / (self.times[-1] - self.times[-2])
-
-    def to_track(self) -> Track:
-        return Track(self.track_id, self.color, self.positions[-1], self.velocity(), self.times[-1])
+    def to_track(self, window: int) -> Track:
+        """Constant-velocity model p(t) = p0 + v t, least-squares fitted to the last `window` detections."""
+        t = np.array(self.times[-window:])
+        p = np.array(self.positions[-window:])
+        if len(t) < 2:
+            return Track(self.track_id, self.color, p[-1], np.zeros(3), t[-1])
+        dt = t - t.mean()
+        velocity = dt @ (p - p.mean(axis=0)) / (dt @ dt)
+        position = p.mean(axis=0) + velocity * dt[-1]   # fitted position at the latest detection
+        return Track(self.track_id, self.color, position, velocity, t[-1])
 
 
 class Tracker:
-    def __init__(self, max_distance: float = 0.05, max_age: float = 2.0):
+    def __init__(self, max_distance: float = 0.05, max_age: float = 2.0, window: int = 20):
         self.max_distance = max_distance   # gate: a detection further than this from a track's prediction starts a new track [m]
         self.max_age = max_age             # a track not seen for this long is dropped (e.g. box hidden by an arm, or gone) [s]
+        self.window = window               # number of recent detections used for the velocity fit
         self._states: list[_TrackState] = []
         self._next_id = 0
 
@@ -34,7 +39,7 @@ class Tracker:
         # all (track, detection) pairs of equal color within the gate, closest first
         pairs = []
         for i, state in enumerate(self._states):
-            predicted = state.to_track().predict(time)
+            predicted = state.to_track(self.window).predict(time)
             for j, det in enumerate(detections):
                 distance = np.linalg.norm(det.position - predicted)
                 if det.color == state.color and distance <= self.max_distance:
@@ -53,4 +58,4 @@ class Tracker:
                 self._next_id += 1
 
         self._states = [s for s in self._states if time - s.times[-1] <= self.max_age]
-        return [s.to_track() for s in self._states]
+        return [s.to_track(self.window) for s in self._states]
