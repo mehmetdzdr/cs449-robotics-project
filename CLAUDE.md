@@ -10,6 +10,7 @@ pip install -e ".[dev]"                      # core deps; ".[learning]" adds YOL
 python scripts/check_env.py                  # must print ENVIRONMENT OK
 pytest -q                                    # headless Linux: xvfb-run -a pytest -q
 python scripts/run_conveyor.py --view        # conveyor only (or --video out.mp4 headless)
+python scripts/run_sorting.py --view          # Robot 1 sorts colored boxes (--detector gt|hsv, --video out.mp4)
 python scripts/generate_dataset.py --n 2000 --out data/boxes [--preview]
 ```
 
@@ -28,7 +29,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 |---|---|
 | `assets/scene.g` | Our additions (top camera, belt, regions) on top of RAI's `scenarios/pandasTable.g` |
 | `sim/scene.py` | `load_scene()`, `ROBOT_PREFIX` (1 = `l_`, 2 = `r_`), `HOME_Q` |
-| `sim/conveyor.py` | `Conveyor`: `spawn_box`, `step`, `on_belt`, `attach`, `missed`; `ConveyorConfig`; `belt_geometry` |
+| `sim/conveyor.py` | `Conveyor`: `spawn_box`, `step`, `on_belt`, `attach`, `remove`, `missed`; `ConveyorConfig`; `belt_geometry` |
 | `sim/regions.py` | `REGIONS`, `DEFAULT_TARGET` (red A, green B, blue C, gray bin), `region_contains` |
 | `sim/world.py` | `World`: scene + conveyor + clock (`step`, `run`) |
 | `sim/ground_truth.py` | `GroundTruthDetector(world).detect()` |
@@ -39,6 +40,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `prediction/tracker.py` | `Tracker.update(detections, time)`: association + constant-velocity fit |
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
 | `planning/execute.py` | `execute_path(world, path, duration)`, `grasp(world, robot_id, box=None)` (returns box name or None), `release(world, box, region)` (kinematic) |
+| `sorting.py` | `run_single_robot(world, detect, duration)`: tracker + `choose_track` + `pick_and_place` loop, returns `SortingStats` |
 | `planning/pick_place.py` | `pick_and_place(world, assignment, track, on_step)`: plans and executes one `Assignment`, returns `PickPlaceResult` |
 
 ## Facts worth knowing
@@ -46,6 +48,10 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 - Grasping is kinematic by team decision (no physics engine): the box is attached to the gripper.
 - Stationary pick-and-place sequence: `plan_pick`, `grasp`, `plan_lift`, `plan_place`, `release`, `plan_lift` (retreat up, otherwise the fingers hit the box), `plan_home`; see `tests/test_place.py`.
 - `plan_moving_pick` path must be executed in exactly `pick_time - now` seconds; the planner treats the box as static at its current position for collision checks.
+- Never `delFrame` while planning is in use: RAI's collision engine keeps stale geometry (wrong KOMO results or a crash). `Conveyor.remove` parks boxes below the floor instead. Only `perception/dataset.py` deletes frames (no planning there).
+- A box can be reachable but not liftable at the edge of the workspace; `sorting.choose_track` therefore requires a point 10 cm downstream and 15 cm up to be reachable too.
+- A region holds one box: the sorting loop removes the previous box before the next one is placed there.
+- Rendering costs about 0.15 s per frame, so vision-in-the-loop runs are slow (36 s of simulation took about 2 min).
 - HSV detector: gray blobs on the robot arms are rejected by a height check from depth; touching boxes of the same color merge into one blob (not handled).
 - `World.step()` spawns a box on the very first step even with a huge `spacing`.
 - Belt: along +x, x in [-1.1, 1.1], centre y = 0.2, surface z = 0.62. Boxes: 6 cm cubes, kinematic motion (no physics).
@@ -59,10 +65,10 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 
 ## Status (last updated 2026-11-15)
 
-Done and merged (PRs #44 to #65, 74 tests, CI green):
-M0 #2 #3 · M1 #4 to #9 · M2 #10 to #14 (complete) · M3 #15 #16 #17 #18 · M4 #23 #24
+Done and merged (PRs #44 to #66, 77 tests, CI green):
+M0 #2 #3 · M1 #4 to #9 · M2 #10 to #14 (complete) · M3 #15 #16 #17 #18 · M4 #23 #24 · M5 #26
 
-Measured: localization error 1.6 mm mean / 2.8 mm max (GT masks); HSV detector 2.0 mm mean / 3.5 mm max, no misses or false positives on 124 well-visible boxes; prediction error 4.8 mm at 2 s with 2 mm synthetic noise; KOMO pick planning about 0.05 s; a full pick-and-place needs about 0.25 s planning and 10 to 11 s of simulation time.
+Measured: localization error 1.6 mm mean / 2.8 mm max (GT masks); HSV detector 2.0 mm mean / 3.5 mm max, no misses or false positives on 124 well-visible boxes; prediction error 4.8 mm at 2 s with 2 mm synthetic noise; KOMO pick planning about 0.05 s; a full pick-and-place needs about 0.25 s planning and 10 to 11 s of simulation time, so one robot sorts about one box per 10 s.
 
 Open:
 - #1 stays open until every member has run `check_env.py` on their own machine.
@@ -70,6 +76,6 @@ Open:
 
 ## Next steps, in order
 
-1. #26 single-robot autonomous sorting loop with the ground-truth detector (needs #22 detector factory first, or use `GroundTruthDetector` directly). `pick_and_place` blocks until the arm is home: pass `on_step` to keep the tracker updated meanwhile. For two arms moving at once (#30) it has to become non-blocking.
+1. #27 command parser, #28 command-mode box and robot selection, #29 command mode end-to-end.
 2. #19 YOLO fine-tune: must run on a GPU machine with internet for pretrained weights; dataset generator is ready. Then #20 SAM, #22 detector factory.
-3. #25 Kalman, then M5 onwards.
+3. #25 Kalman, #22 detector factory (after YOLO), then M6: `pick_and_place` blocks until the arm is home, so two arms moving at once (#30) need a non-blocking version.
