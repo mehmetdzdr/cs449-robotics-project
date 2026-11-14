@@ -43,6 +43,7 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e ".[dev]"            # core: robotic (RAI), numpy, opencv
 pip install -e ".[learning]"       # optional: YOLO, SAM
 python scripts/check_env.py        # must end with ENVIRONMENT OK
+python scripts/view_scene.py       # opens the scene in the RAI viewer
 pytest
 ```
 
