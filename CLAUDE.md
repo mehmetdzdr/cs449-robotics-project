@@ -37,7 +37,8 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
 | `prediction/tracker.py` | `Tracker.update(detections, time)`: association + constant-velocity fit |
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
-| `planning/execute.py` | `execute_path(world, path, duration)`, `grasp(world, robot_id, box)`, `release(world, box, region)` (kinematic) |
+| `planning/execute.py` | `execute_path(world, path, duration)`, `grasp(world, robot_id, box=None)` (returns box name or None), `release(world, box, region)` (kinematic) |
+| `planning/pick_place.py` | `pick_and_place(world, assignment, track, on_step)`: plans and executes one `Assignment`, returns `PickPlaceResult` |
 
 ## Facts worth knowing
 
@@ -56,10 +57,10 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 
 ## Status (last updated 2026-11-15)
 
-Done and merged (PRs #44 to #63, 66 tests, CI green):
-M0 #2 #3 · M1 #4 to #9 · M2 #10 to #13 · M3 #15 #16 #18 · M4 #23 #24
+Done and merged (PRs #44 to #64, 72 tests, CI green):
+M0 #2 #3 · M1 #4 to #9 · M2 #10 to #14 (complete) · M3 #15 #16 #18 · M4 #23 #24
 
-Measured: localization error 1.6 mm mean / 2.8 mm max (GT masks); prediction error 4.8 mm at 2 s with 2 mm synthetic noise; KOMO pick planning about 0.05 s.
+Measured: localization error 1.6 mm mean / 2.8 mm max (GT masks); prediction error 4.8 mm at 2 s with 2 mm synthetic noise; KOMO pick planning about 0.05 s; a full pick-and-place needs about 0.25 s planning and 10 to 11 s of simulation time.
 
 Open:
 - #1 stays open until every member has run `check_env.py` on their own machine.
@@ -67,6 +68,6 @@ Open:
 
 ## Next steps, in order
 
-1. #14 `plan_pick_place(C, assignment)`: wrap moving pick, grasp, lift, place, release, retreat, home for either arm. Needs a way to find the box frame for a track at grasp time (nearest box on the belt to the gripper).
+1. #26 single-robot autonomous sorting loop with the ground-truth detector (needs #22 detector factory first, or use `GroundTruthDetector` directly). `pick_and_place` blocks until the arm is home: pass `on_step` to keep the tracker updated meanwhile. For two arms moving at once (#30) it has to become non-blocking.
 2. #19 YOLO fine-tune: must run on a GPU machine with internet for pretrained weights; dataset generator is ready. Then #20 SAM, #22 detector factory.
 3. #17 HSV baseline, #25 Kalman, then M5 onwards.
