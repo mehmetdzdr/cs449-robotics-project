@@ -39,13 +39,22 @@ upstream module is ready.
 ## Setup
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"            # core: robotic (RAI), numpy, opencv
 pip install -e ".[learning]"       # optional: YOLO, SAM
+python scripts/check_env.py        # must end with ENVIRONMENT OK
 pytest
 ```
 
-On Linux, `robotic` needs OpenGL libraries (e.g. `sudo apt install libglu1-mesa`).
+Requires Python 3.10 or newer.
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `ImportError: libGLU.so.1` (Linux) | `sudo apt install libglu1-mesa` |
+| `GLFW error ... DISPLAY environment variable is missing` (headless Linux, SSH, CI) | `sudo apt install xvfb`, then prefix commands with `xvfb-run -a`, e.g. `xvfb-run -a pytest` |
+| `FreeType Error: Failed to load font` warning | Harmless; only text overlays in the viewer are disabled |
 
 ## Milestones
 
