@@ -54,3 +54,36 @@ def test_track_survives_short_occlusion_and_is_dropped_after_max_age():
     (track,) = tracker.update([det(BoxColor.GREEN, 0.15, 0.2, 1.5)], 1.5)   # reappears where predicted
     assert track.track_id == hidden.track_id
     assert tracker.update([], 3.6) == []                                    # unseen for more than max_age
+
+
+def future_errors_mm(window: int, noise: float, horizon: float) -> np.ndarray:
+    """Track one box moving at 0.15 m/s from noisy detections (20 Hz), predict `horizon` s ahead; 200 trials."""
+    rng = np.random.default_rng(0)
+    velocity = np.array([0.15, 0.0, 0.0])
+    errors = []
+    for _ in range(200):
+        tracker = Tracker(window=window)
+        for k in range(40):
+            t = 0.05 * k
+            position = velocity * t + np.append(rng.normal(0, noise, 2), 0.65)
+            (track,) = tracker.update([Detection(BoxColor.RED, position, 1.0, t)], t)
+        truth = velocity * (t + horizon) + [0, 0, 0.65]
+        errors.append(np.linalg.norm(track.predict(t + horizon) - truth))
+    return np.array(errors) * 1000
+
+
+def test_prediction_is_exact_without_noise():
+    assert future_errors_mm(window=20, noise=0.0, horizon=2.0).max() < 1e-6
+
+
+@pytest.mark.parametrize("horizon, bound_mm", [(0.5, 3.0), (1.0, 5.0), (2.0, 9.0)])
+def test_future_position_error_with_2mm_detection_noise(horizon, bound_mm):
+    errors = future_errors_mm(window=20, noise=0.002, horizon=horizon)
+    assert errors.mean() < bound_mm
+
+
+def test_window_fit_beats_two_point_velocity():
+    two_point = future_errors_mm(window=2, noise=0.002, horizon=2.0).mean()
+    windowed = future_errors_mm(window=20, noise=0.002, horizon=2.0).mean()
+    assert windowed < two_point / 10
+    print(f"mean error at 2 s: two-point {two_point:.1f} mm, window 20: {windowed:.1f} mm")
