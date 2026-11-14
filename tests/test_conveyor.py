@@ -64,3 +64,47 @@ def test_color_weights_control_distribution():
     config = ConveyorConfig(color_weights={BoxColor.RED: 1.0, BoxColor.GRAY: 0.0})
     conveyor = Conveyor(load_scene(), config)
     assert {conveyor.colors[conveyor.spawn_box()] for _ in range(10)} == {BoxColor.RED}
+
+
+def test_step_moves_boxes_with_belt_speed():
+    C = load_scene()
+    conveyor = Conveyor(C, ConveyorConfig(speed=0.2, spacing=100.0))
+    conveyor.step(0.0)                      # first box enters immediately
+    (name,) = conveyor.on_belt()
+    x0 = C.getFrame(name).getPosition()[0]
+    for _ in range(10):
+        conveyor.step(0.05)
+    assert C.getFrame(name).getPosition()[0] == pytest.approx(x0 + 0.2 * 0.5)
+
+
+def test_boxes_spawn_with_configured_spacing():
+    C = load_scene()
+    conveyor = Conveyor(C, ConveyorConfig(speed=0.1, spacing=0.25))
+    for _ in range(int(10 / 0.05)):         # 10 s -> 1.0 m of belt travel
+        conveyor.step(0.05)
+    xs = sorted(C.getFrame(n).getPosition()[0] for n in conveyor.on_belt())
+    assert len(xs) == 5
+    assert np.diff(xs) == pytest.approx(0.25, abs=0.006)
+
+
+def test_box_leaving_belt_end_is_removed_and_counted():
+    C = load_scene()
+    conveyor = Conveyor(C, ConveyorConfig(speed=1.0, spacing=100.0))
+    conveyor.step(0.0)
+    for _ in range(50):                     # 2.5 m of travel > belt length
+        conveyor.step(0.05)
+    assert conveyor.on_belt() == []
+    assert conveyor.missed == 1
+    assert not any(n.startswith("box_") for n in C.getFrameNames())
+
+
+def test_grasped_box_is_not_moved_by_belt():
+    C = load_scene()
+    conveyor = Conveyor(C, ConveyorConfig(spacing=100.0))
+    conveyor.step(0.0)
+    (name,) = conveyor.on_belt()
+    conveyor.attach(name, "l_gripper")     # what a grasp does
+    before = C.getFrame(name).getPosition()
+    conveyor.step(1.0)
+    assert conveyor.on_belt() == []
+    assert C.getFrame(name).getPosition() == pytest.approx(before)
