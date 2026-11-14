@@ -59,6 +59,17 @@ Requires Python 3.10 or newer.
 | `GLFW error ... DISPLAY environment variable is missing` (headless Linux, SSH, CI) | `sudo apt install xvfb`, then prefix commands with `xvfb-run -a`, e.g. `xvfb-run -a pytest` |
 | `FreeType Error: Failed to load font` warning | Harmless; only text overlays in the viewer are disabled |
 
+## Synthetic dataset for YOLO
+
+Labels come from the simulator's ground-truth segmentation, so nothing is labelled by hand:
+
+```bash
+python scripts/generate_dataset.py --n 2000 --out data/boxes     # about 0.3 s per image
+python scripts/generate_dataset.py --n 8 --out data/preview --preview   # draws the labels for a visual check
+```
+
+Classes: `0 red, 1 green, 2 blue, 3 gray`. Output is in Ultralytics layout with a `data.yaml`.
+
 ## Milestones
 
 1. RAI setup and stationary KOMO pick-and-place

@@ -27,10 +27,17 @@ class Camera:
     def __init__(self, C: ry.Config, frame_name: str = TOP_CAMERA):
         self.C = C
         self.frame_name = frame_name
-        self._view = ry.CameraView(C)
-        self._view.setCamera(C.getFrame(frame_name))
+        self._view = None
+        self._frame_names: list[str] = []
 
     def capture(self, timestamp: float = 0.0) -> Observation:
+        # RAI's CameraView caches shapes and colors; after frames were added or removed it can render
+        # stale colors, so the view is rebuilt whenever the set of frames changed.
+        names = self.C.getFrameNames()
+        if names != self._frame_names:
+            self._view = ry.CameraView(self.C)
+            self._view.setCamera(self.C.getFrame(self.frame_name))
+            self._frame_names = names
         rgb, depth = self._view.computeImageAndDepth(self.C)
         segmentation = self._view.computeSegmentationID()
         frame = self.C.getFrame(self.frame_name)

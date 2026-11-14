@@ -7,10 +7,9 @@ Examples:
 import argparse
 
 import cv2
-import robotic as ry
 
+from conveyor_sort.perception.camera import Camera
 from conveyor_sort.sim.conveyor import ConveyorConfig
-from conveyor_sort.sim.scene import TOP_CAMERA
 from conveyor_sort.sim.world import World
 
 parser = argparse.ArgumentParser()
@@ -25,8 +24,7 @@ args = parser.parse_args()
 world = World(ConveyorConfig(speed=args.speed, spacing=args.spacing, seed=args.seed))
 camera = writer = None
 if args.video:
-    camera = ry.CameraView(world.C)
-    camera.setCamera(world.C.getFrame(TOP_CAMERA))
+    camera = Camera(world.C)
     writer = cv2.VideoWriter(args.video, cv2.VideoWriter_fourcc(*"mp4v"), round(1 / world.dt), (1280, 720))
 
 
@@ -34,8 +32,7 @@ def on_step(world: World) -> None:
     if args.view:
         world.C.view(False, f"t = {world.time:.2f} s")
     if writer:
-        rgb, _ = camera.computeImageAndDepth(world.C)
-        writer.write(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+        writer.write(cv2.cvtColor(camera.capture(world.time).rgb, cv2.COLOR_RGB2BGR))
 
 
 world.run(args.duration, on_step)
