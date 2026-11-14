@@ -10,3 +10,11 @@ cameraTop: {
  shape: camera, size: [.1],
  focalLength: 1.75, width: 1280, height: 720, zRange: [.5, 100]
 }
+
+### conveyor belt: runs along +x between/in front of the robots; top surface at z = 0.62
+
+belt: {
+ X: [0, 0.2, 0.61],
+ shape: ssBox, size: [2.2, 0.3, 0.02, 0.005], color: [.25, .25, .25],
+ contact: 1
+}
