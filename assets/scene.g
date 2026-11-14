@@ -18,3 +18,11 @@ belt: {
  shape: ssBox, size: [2.2, 0.3, 0.02, 0.005], color: [.25, .25, .25],
  contact: 1
 }
+
+### target regions (thin pale markers on the table, 0.2 m x 0.2 m, no collision)
+# region_A, region_C: Robot 1 only.  region_B: both robots.  bin_gray: Robot 2 only.
+
+region_A: { X: [-0.85, -0.40, 0.601], shape: box, size: [.2, .2, .002], color: [1., .85, .85] }
+region_B: { X: [ 0.00, -0.40, 0.601], shape: box, size: [.2, .2, .002], color: [.85, 1., .85] }
+region_C: { X: [-0.85, -0.12, 0.601], shape: box, size: [.2, .2, .002], color: [.85, .85, 1.] }
+bin_gray: { X: [ 0.85, -0.40, 0.601], shape: box, size: [.2, .2, .002], color: [.8, .8, .8] }
