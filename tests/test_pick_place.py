@@ -1,8 +1,11 @@
+import numpy as np
 import pytest
 
-from conveyor_sort.interfaces import Assignment
+from conveyor_sort.interfaces import Assignment, BoxColor, Track
 from conveyor_sort.planning.pick_place import PickPlaceTask, pick_and_place
+from conveyor_sort.sim.conveyor import ConveyorConfig
 from conveyor_sort.sim.regions import region_contains
+from conveyor_sort.sim.world import World
 from conveyor_sort.sim.scene import HOME_Q
 from test_moving_pick import tracked_box
 
@@ -66,3 +69,17 @@ def test_task_moves_only_its_own_arm():
         assert world.C.getJointState()[:7] == pytest.approx(HOME_Q)      # Robot 1 is not touched
         world.step()
     assert task.result.success and task.result.box == box
+
+
+def test_pick_is_not_started_when_the_lift_from_the_grasp_pose_cannot_be_planned():
+    """Far side of the belt at the upstream limit: the grasp pose is reachable, but the arm cannot lift from it."""
+    world = World(ConveyorConfig(speed=0.05, max_boxes=0))
+    box = world.conveyor.spawn_box(BoxColor.BLUE, x=-0.87 - 3.0 * 0.05, y=0.07)
+    track = Track(0, BoxColor.BLUE, world.C.getFrame(box).getPosition(), np.array([0.05, 0, 0]), 0.0)
+    q = world.C.getJointState()
+    result = pick_and_place(world, assignment_for(track, 1, "region_C", 3.0), track)
+    assert not result.success and result.failed_stage == "pick" and result.box is None
+    assert world.time == 0.0 and world.C.getJointState() == pytest.approx(q)      # nothing moved
+    world.run(3.0)                                                                # 15 cm further on it works
+    track = Track(0, BoxColor.BLUE, world.C.getFrame(box).getPosition(), np.array([0.05, 0, 0]), world.time)
+    assert pick_and_place(world, assignment_for(track, 1, "region_C", world.time + 3.0), track).success

@@ -71,6 +71,38 @@ The JSON config sets belt speed, box spacing, number of boxes, color distributio
 appends one row to the CSV: grasp success rate, sorting accuracy, missed boxes, planning time, completion time
 and throughput (boxes per minute).
 
+### Manipulation benchmark
+
+```bash
+python evaluation/benchmark_manipulation.py      # 117 runs, about 20 min; --quick for a 2 min subset
+```
+
+Three configurations on the same box streams (ground-truth detections): `single` (Robot 1 alone), `fixed`
+(Robot 1 sorts, Robot 2 removes gray boxes), `coordinated` (both may sort green, shared-area priority,
+clear-and-sort). 36 streams: speed 0.05 / 0.1 / 0.15 m/s, 10 / 20 boxes, spacing 0.3 / 0.6 m, three color
+distributions. Share of all boxes sorted correctly:
+
+| | single | fixed | coordinated |
+|---|---|---|---|
+| all 36 streams | 40.6 % | 72.2 % | 72.8 % |
+| 0.05 m/s | 54.4 % | 95.0 % | 95.6 % |
+| 0.1 m/s | 40.0 % | 71.1 % | 71.1 % |
+| 0.15 m/s | 27.2 % | 50.6 % | 51.7 % |
+| spacing 0.3 m | 35.2 % | 62.2 % | 62.6 % |
+| spacing 0.6 m | 45.9 % | 82.2 % | 83.0 % |
+| gray-heavy colors | 21.7 % | 68.9 % | 68.9 % |
+| green-heavy colors | 52.2 % | 71.1 % | 72.8 % |
+| throughput [boxes/min] | 3.3 | 5.9 | 6.0 |
+
+Every one of the 1079 attempts ended with the box in the right region (grasp success and sorting accuracy
+1.0); boxes are lost only because no robot was free in time. Planning takes 0.15 s per pick-and-place on average
+(0.65 s at most). Coordinated: 8 shared-area conflicts and 22 s of waiting in total, all in the green-heavy
+streams.
+
+Three more streams (0.03 / 0.05 / 0.08 m/s, 20 boxes) contain 6 blocked pairs each, a gray box 8 cm in front of
+a colored one: single 35 %, fixed 40 %, coordinated 53 % sorted. Clear-and-sort was attempted for 4 of the 18
+pairs and succeeded 4 times; the other pairs were outside its limits (far half of the belt, 0.08 m/s stream).
+
 ### Prediction benchmark
 
 ```bash

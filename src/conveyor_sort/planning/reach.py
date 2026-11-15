@@ -19,3 +19,18 @@ def is_reachable(C: ry.Config, robot_id: int, position: np.ndarray) -> bool:
         return bool(ret.feasible)
     finally:
         C.delFrame(target)
+
+
+LIFT_HEIGHT = 0.15     # a grasped box is lifted this far [m]
+EDGE_MARGIN = 0.1      # distance to keep from the limit of the workspace along the belt [m]
+
+
+def can_pick(C: ry.Config, robot_id: int, position: np.ndarray) -> bool:
+    """True if the robot can grasp a box at `position` and lift it.
+
+    At the edge of the workspace a box can be reached but not lifted, and the arm is then left holding it.
+    So the points at lift height `EDGE_MARGIN` upstream and downstream must be reachable too.
+    """
+    return (is_reachable(C, robot_id, position)
+            and is_reachable(C, robot_id, position + [EDGE_MARGIN, 0, LIFT_HEIGHT])
+            and is_reachable(C, robot_id, position + [-EDGE_MARGIN, 0, LIFT_HEIGHT]))

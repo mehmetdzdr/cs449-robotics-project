@@ -42,6 +42,10 @@ class ConveyorConfig:
     color_weights: dict[BoxColor, float] = field(default_factory=lambda: {c: 1.0 for c in BoxColor})
     seed: int = 0
     max_boxes: int | None = None     # stop spawning after this many boxes (None: endless)
+    blocked_pairs: float = 0.0       # probability that a spawn is a gray box with a colored box PAIR_GAP behind it
+
+
+PAIR_GAP = 0.08   # distance between the two boxes of a blocked pair [m]: the gray one is in the way of a grasp
 
 
 class Conveyor:
@@ -56,6 +60,8 @@ class Conveyor:
         self._next_id = 0
         self._since_spawn = self.config.spacing   # belt travel since the last spawn; first box enters at once
         self.missed = 0                           # boxes that reached the belt end unpicked
+        self.pairs = 0                            # blocked pairs spawned so far
+        self._follower: tuple[float, float] | None = None   # (belt travel left, y) until the colored box of a pair enters
 
     @property
     def spawned(self) -> int:
@@ -119,4 +125,17 @@ class Conveyor:
         if self._since_spawn >= self.config.spacing:
             self._since_spawn -= self.config.spacing
             if self.config.max_boxes is None or self._next_id < self.config.max_boxes:
-                self.spawn_box()
+                colored = [c for c, weight in self.config.color_weights.items() if c != BoxColor.GRAY and weight > 0]
+                if colored and self.config.blocked_pairs and self._rng.random() < self.config.blocked_pairs:
+                    gray = self.spawn_box(BoxColor.GRAY)
+                    self._follower = PAIR_GAP, self.C.getFrame(gray).getRelativePosition()[1]
+                    self.pairs += 1
+                else:
+                    self.spawn_box()
+        if self._follower:
+            travel, y = self._follower[0] - advance, self._follower[1]
+            self._follower = (travel, y)
+            if travel <= 1e-9:
+                colored = [c for c, weight in self.config.color_weights.items() if c != BoxColor.GRAY and weight > 0]
+                self.spawn_box(colored[self._rng.choice(len(colored))], y=y)
+                self._follower = None
