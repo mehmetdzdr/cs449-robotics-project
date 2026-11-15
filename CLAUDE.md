@@ -70,17 +70,21 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 
 ## Status (last updated 2026-11-15)
 
-Done and merged (PRs #44 to #66, 77 tests, CI green):
-M0 #2 #3 · M1 #4 to #9 · M2 #10 to #14 (complete) · M3 #15 #16 #17 #18 · M4 #23 #24 · M5 #26
+Done and merged (PRs #44 to #70, 105 tests, CI green):
+M0 #2 #3 · M1 #4 to #9 · M2 #10 to #14 (complete) · M3 #15 #16 #17 #18 · M4 #23 #24 #25 (complete) · M5 #26 #27 · M6 #30 · M7 #34
 
-Measured: localization error 1.6 mm mean / 2.8 mm max (GT masks); HSV detector 2.0 mm mean / 3.5 mm max, no misses or false positives on 124 well-visible boxes; prediction error 4.8 mm at 2 s with 2 mm synthetic noise; KOMO pick planning about 0.05 s; a full pick-and-place needs about 0.25 s planning and 10 to 11 s of simulation time, so one robot sorts about one box per 10 s.
+Measured: localization error 1.6 mm mean / 2.8 mm max (GT masks); HSV detector 2.0 mm mean / 3.5 mm max, no misses or false positives on 124 well-visible boxes; prediction error at 2 s with 2 mm synthetic noise: 4.8 mm with the window fit, 3.1 mm with Kalman after 40 frames (equal up to 20 frames); KOMO pick planning about 0.05 s; a full pick-and-place needs about 0.25 s planning and 10 to 11 s of simulation time, so one robot sorts about one box per 10 s. Two robots with fixed roles (a box every 6 s at 0.1 m/s, 60 s): 7 of 7 sorted, no collisions; Robot 1 alone misses the 3 gray boxes.
 
 Open:
 - #1 stays open until every member has run `check_env.py` on their own machine.
-- 16 merged branches still exist on GitHub (delete manually or enable auto-delete).
+- Merged branches still exist on GitHub (delete manually or enable auto-delete).
+- `robotic` has Linux wheels only: on Windows use WSL.
 
 ## Next steps, in order
 
-1. #27 command parser, #28 command-mode box and robot selection, #29 command mode end-to-end.
-2. #19 YOLO fine-tune: must run on a GPU machine with internet for pretrained weights; dataset generator is ready. Then #20 SAM, #22 detector factory.
-3. #25 Kalman, #22 detector factory (after YOLO), then M6: `pick_and_place` blocks until the arm is home, so two arms moving at once (#30) need a non-blocking version.
+Critical path: #31 -> #32 -> #33 -> #37 -> #41 -> #43.
+
+1. #31 task allocation (replaces the fixed `PICK_X_MIN` split), #28 command-mode box and robot selection, #36 prediction benchmark.
+2. #19 YOLO fine-tune: needs a GPU machine with internet for pretrained weights; dataset generator is ready. Then #20 SAM, #22 detector factory (`metrics.run_experiment` builds its detector inline until then), #35.
+3. #32 shared-workspace priority, #29 command mode end-to-end, then #33 clear-and-sort, #38.
+4. #37 manipulation benchmark (`metrics.run_experiment` only runs the single-robot loop so far), #39 to #43.
