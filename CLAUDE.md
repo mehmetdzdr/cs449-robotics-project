@@ -10,7 +10,7 @@ pip install -e ".[dev]"                      # core deps; ".[learning]" adds YOL
 python scripts/check_env.py                  # must print ENVIRONMENT OK
 pytest -q                                    # headless Linux: xvfb-run -a pytest -q
 python scripts/run_conveyor.py --view        # conveyor only (or --video out.mp4 headless)
-python scripts/run_sorting.py --view          # Robot 1 sorts colored boxes (--detector gt|hsv, --video out.mp4)
+python scripts/run_sorting.py --view          # Robot 1 sorts colored boxes (--robots 2: Robot 2 removes gray; --detector gt|hsv, --video out.mp4)
 python scripts/generate_dataset.py --n 2000 --out data/boxes [--preview]
 ```
 
@@ -37,12 +37,15 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `perception/localization.py` | `mask_to_world(mask, obs)`: mask + depth to box centre in world frame |
 | `perception/hsv.py` | `HsvDetector(belt).detect(obs)`: HSV thresholds in the belt ROI, blobs, height check |
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
-| `prediction/tracker.py` | `Tracker.update(detections, time)`: association + constant-velocity fit |
+| `prediction/tracker.py` | `Tracker(predictor="cv" or "kalman").update(detections, time)`: association + constant-velocity window fit or Kalman filter |
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
 | `planning/execute.py` | `execute_path(world, path, duration)`, `grasp(world, robot_id, box=None)` (returns box name or None), `release(world, box, region)` (kinematic) |
 | `command/parser.py` | `parse_command(text)`: text to `Command` (color + region), `ValueError` with a user message if invalid |
 | `sorting.py` | `run_single_robot(world, detect, duration)`: tracker + `choose_track` + `pick_and_place` loop, returns `SortingStats` |
 | `planning/pick_place.py` | `pick_and_place(world, assignment, track, on_step)`: plans and executes one `Assignment`, returns `PickPlaceResult` |
+| `planning/execute.py` | `execute_path(world, path, duration)`, `follow_path` (generator, one robot's joints only), `grasp(world, robot_id, box=None)` (returns box name or None), `release(world, box, region)` (kinematic) |
+| `sorting.py` | `run_robots(world, detect, duration, roles=FIXED_ROLES)`: tracker + `choose_track` + one `PickPlaceTask` per robot, both arms move at once, returns `SortingStats`; `run_single_robot` |
+| `planning/pick_place.py` | `PickPlaceTask(world, assignment, track)`: non-blocking, `advance()` before every `world.step()`, moves only its own arm; `pick_and_place(...)` is the blocking form, returns `PickPlaceResult` |
 
 ## Facts worth knowing
 
@@ -51,6 +54,8 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 - `plan_moving_pick` path must be executed in exactly `pick_time - now` seconds; the planner treats the box as static at its current position for collision checks.
 - Never `delFrame` while planning is in use: RAI's collision engine keeps stale geometry (wrong KOMO results or a crash). `Conveyor.remove` parks boxes below the floor instead. Only `perception/dataset.py` deletes frames (no planning there).
 - A box can be reachable but not liftable at the edge of the workspace; `sorting.choose_track` therefore requires a point 10 cm downstream and 15 cm up to be reachable too.
+- Each arm plans with the other arm static at its current pose. Without coordination Robot 2 picks only at x >= 0.4 (`sorting.PICK_X_MIN`); picking in the overlap (x in [-0.2, 0.2]) while Robot 1 works gave arm-arm collisions.
+- A pick plan can fail where IK says reachable (box just entering a robot's workspace): the sorting loop retries that track 0.5 s later instead of giving up.
 - A region holds one box: the sorting loop removes the previous box before the next one is placed there.
 - Rendering costs about 0.15 s per frame, so vision-in-the-loop runs are slow (36 s of simulation took about 2 min).
 - HSV detector: gray blobs on the robot arms are rejected by a height check from depth; touching boxes of the same color merge into one blob (not handled).
