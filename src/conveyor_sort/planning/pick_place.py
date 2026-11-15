@@ -1,9 +1,9 @@
 """Planning interface for the rest of the system: carry out one Assignment (pick a moving box, place it, go home)."""
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Iterator
 
 from conveyor_sort.interfaces import Assignment, Track
-from conveyor_sort.planning.execute import execute_path, grasp, release
+from conveyor_sort.planning.execute import follow_path, grasp, release
 from conveyor_sort.planning.pick import Plan, plan_home, plan_lift, plan_moving_pick, plan_place
 from conveyor_sort.sim.world import World
 
@@ -19,37 +19,59 @@ class PickPlaceResult:
     box: str | None                 # frame name of the grasped box
 
 
+class PickPlaceTask:
+    """Carries out one assignment step by step, so that the caller can run both robots at the same time.
+
+    Call `advance()` once before every `world.step()`: it moves this robot's arm (only its own joints) by one
+    simulation step and returns False once the task has ended; `result` is final then. The box is grasped at
+    `assignment.pick_time` where `track` predicts it. Each stage is planned from the state the previous one ended
+    in, with the other arm treated as static at its current pose. On failure the arm stops where it is (after a
+    failed grasp it goes home).
+    """
+
+    def __init__(self, world: World, assignment: Assignment, track: Track):
+        self.assignment = assignment
+        self.result = PickPlaceResult(False, 0.0, None, None)
+        self._steps = self._run(world, assignment, track)
+
+    def advance(self) -> bool:
+        return next(self._steps, False)
+
+    def _run(self, world: World, assignment: Assignment, track: Track) -> Iterator[bool]:
+        C, robot, result = world.C, assignment.robot_id, self.result
+
+        def run(stage: str, plan: Plan, duration: float) -> Iterator[bool]:
+            result.planning_time += plan.planning_time
+            if not plan.feasible:
+                result.failed_stage = result.failed_stage or stage
+                return False
+            for _ in follow_path(world, plan.path, duration, robot):
+                yield True
+            return True
+
+        if not (yield from run("pick", plan_moving_pick(C, robot, track, world.time, assignment.pick_time),
+                               assignment.pick_time - world.time)):
+            return
+        result.box = grasp(world, robot)
+        if result.box is None:
+            result.failed_stage = "grasp"
+            yield from run("home", plan_home(C, robot), HOME_TIME)
+            return
+        result.success = (
+            (yield from run("lift", plan_lift(C, robot), LIFT_TIME))
+            and (yield from run("place", plan_place(C, robot, result.box, assignment.target_region), PLACE_TIME))
+            and (release(world, result.box, assignment.target_region) or True)
+            and (yield from run("retreat", plan_lift(C, robot, height=0.1), RETREAT_TIME))
+            and (yield from run("home", plan_home(C, robot), HOME_TIME))
+        )
+
+
 def pick_and_place(world: World, assignment: Assignment, track: Track,
                    on_step: Callable[[World], None] | None = None) -> PickPlaceResult:
-    """Plan and execute the assignment stage by stage; the world keeps running meanwhile (`on_step` after every step).
-
-    The box is grasped at `assignment.pick_time` where `track` predicts it. Each stage is planned from the
-    state the previous one ended in. On failure the arm stops where it is (after a failed grasp it goes home).
-    """
-    C, robot = world.C, assignment.robot_id
-    result = PickPlaceResult(False, 0.0, None, None)
-
-    def run(stage: str, plan: Plan, duration: float) -> bool:
-        result.planning_time += plan.planning_time
-        if not plan.feasible:
-            result.failed_stage = result.failed_stage or stage
-            return False
-        execute_path(world, plan.path, duration, on_step)
-        return True
-
-    if not run("pick", plan_moving_pick(C, robot, track, world.time, assignment.pick_time),
-               assignment.pick_time - world.time):
-        return result
-    result.box = grasp(world, robot)
-    if result.box is None:
-        result.failed_stage = "grasp"
-        run("home", plan_home(C, robot), HOME_TIME)
-        return result
-    result.success = (
-        run("lift", plan_lift(C, robot), LIFT_TIME)
-        and run("place", plan_place(C, robot, result.box, assignment.target_region), PLACE_TIME)
-        and (release(world, result.box, assignment.target_region) or True)
-        and run("retreat", plan_lift(C, robot, height=0.1), RETREAT_TIME)
-        and run("home", plan_home(C, robot), HOME_TIME)
-    )
-    return result
+    """Blocking form of `PickPlaceTask`: runs the world until the assignment has ended (`on_step` after every step)."""
+    task = PickPlaceTask(world, assignment, track)
+    while task.advance():
+        world.step()
+        if on_step:
+            on_step(world)
+    return task.result

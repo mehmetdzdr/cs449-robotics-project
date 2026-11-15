@@ -1,6 +1,8 @@
-"""Single-robot autonomous sorting: Robot 1 sorts red / green / blue boxes into regions A / B / C.
+"""Autonomous sorting: Robot 1 sorts red / green / blue boxes into regions A / B / C; with --robots 2,
+Robot 2 removes gray boxes into the bin at the same time (fixed roles, no coordination).
 
     python scripts/run_sorting.py --view
+    python scripts/run_sorting.py --robots 2 --view
     python scripts/run_sorting.py --detector hsv --duration 40 --video sorting.mp4     (headless: xvfb-run -a ...)
 """
 import argparse
@@ -12,10 +14,11 @@ from conveyor_sort.perception.hsv import HsvDetector
 from conveyor_sort.sim.conveyor import ConveyorConfig
 from conveyor_sort.sim.ground_truth import GroundTruthDetector
 from conveyor_sort.sim.world import World
-from conveyor_sort.sorting import run_single_robot
+from conveyor_sort.sorting import run_robots, run_single_robot
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--detector", choices=["gt", "hsv"], default="gt", help="ground truth or HSV vision")
+parser.add_argument("--robots", type=int, choices=[1, 2], default=1, help="1: Robot 1 alone, 2: fixed roles")
 parser.add_argument("--duration", type=float, default=60.0, help="simulation time [s]")
 parser.add_argument("--speed", type=float, default=0.1, help="belt speed [m/s]")
 parser.add_argument("--spacing", type=float, default=0.6, help="distance between boxes [m]")
@@ -41,11 +44,11 @@ def on_step(world: World) -> None:
         writer.write(cv2.cvtColor(camera.capture(world.time).rgb, cv2.COLOR_RGB2BGR))
 
 
-stats = run_single_robot(world, detect, args.duration, on_step=on_step)
+stats = (run_robots if args.robots == 2 else run_single_robot)(world, detect, args.duration, on_step=on_step)
 if writer:
     writer.release()
     print(f"saved {args.video}")
 for e in stats.events:
     outcome = "ok" if e.correct else f"FAILED at {e.failed_stage}"
-    print(f"t = {e.time:6.1f} s  {e.color.value:5s} -> {e.region}: {outcome}  (planning {e.planning_time:.2f} s)")
+    print(f"t = {e.time:6.1f} s  robot {e.robot_id}  {e.color.value:5s} -> {e.region}: {outcome}  (planning {e.planning_time:.2f} s)")
 print(f"sorted correctly: {stats.sorted_correctly}, failed: {stats.failed}, left the belt: {stats.missed}")

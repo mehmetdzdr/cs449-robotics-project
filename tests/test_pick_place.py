@@ -1,7 +1,7 @@
 import pytest
 
 from conveyor_sort.interfaces import Assignment
-from conveyor_sort.planning.pick_place import pick_and_place
+from conveyor_sort.planning.pick_place import PickPlaceTask, pick_and_place
 from conveyor_sort.sim.regions import region_contains
 from conveyor_sort.sim.scene import HOME_Q
 from test_moving_pick import tracked_box
@@ -57,3 +57,12 @@ def test_missed_grasp_sends_the_arm_home():
     assert not result.success and result.failed_stage == "grasp"
     assert world.C.getJointState()[:7] == pytest.approx(HOME_Q, abs=1e-3)
     assert box in world.conveyor.on_belt()
+
+
+def test_task_moves_only_its_own_arm():
+    world, box, track = tracked_box(speed=0.3)
+    task = PickPlaceTask(world, assignment_for(track, 2, "bin_gray", world.time + 3.5), track)
+    while task.advance():
+        assert world.C.getJointState()[:7] == pytest.approx(HOME_Q)      # Robot 1 is not touched
+        world.step()
+    assert task.result.success and task.result.box == box
