@@ -39,6 +39,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
 | `prediction/tracker.py` | `Tracker(predictor="cv" or "kalman").update(detections, time)`: association + constant-velocity window fit or Kalman filter |
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
+| `command/parser.py` | `parse_command(text)`: text to `Command` (color + region), `ValueError` with a user message if invalid |
 | `planning/execute.py` | `execute_path(world, path, duration)`, `follow_path` (generator, one robot's joints only), `grasp(world, robot_id, box=None)` (returns box name or None), `release(world, box, region)` (kinematic) |
 | `sorting.py` | `run_robots(world, detect, duration, roles=FIXED_ROLES)`: tracker + `choose_track` + one `PickPlaceTask` per robot, both arms move at once, returns `SortingStats`; `run_single_robot` |
 | `planning/pick_place.py` | `PickPlaceTask(world, assignment, track)`: non-blocking, `advance()` before every `world.step()`, moves only its own arm; `pick_and_place(...)` is the blocking form, returns `PickPlaceResult` |
