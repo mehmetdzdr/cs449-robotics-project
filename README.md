@@ -81,6 +81,21 @@ python scripts/generate_dataset.py --n 8 --out data/preview --preview   # draws 
 
 Classes: `0 red, 1 green, 2 blue, 3 gray`. Output is in Ultralytics layout with a `data.yaml`.
 
+## YOLO detector
+
+```bash
+pip install -e ".[learning]"
+python scripts/generate_dataset.py --n 2000 --out data/boxes
+python scripts/train_yolo.py --data data/boxes/data.yaml --epochs 30     # needs a GPU; about 14 min on an RTX 3070
+```
+
+Fine-tunes the pretrained `yolo11n` on the synthetic dataset and copies the best weights to
+`weights/yolo_boxes.pt`, where `YoloDetector` looks for them. The weights (5.6 MB) are not in git.
+
+Validation (400 images, 1793 boxes): mAP50 0.995, mAP50-95 0.995, precision and recall 0.999. On 25 new random
+scenes with the arms over the belt: 115 of 115 well-visible boxes found, no false positives, position error
+1.7 mm mean / 3.6 mm max, 29 ms per frame on the GPU.
+
 ## Milestones
 
 1. RAI setup and stationary KOMO pick-and-place
