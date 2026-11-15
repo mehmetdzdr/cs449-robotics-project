@@ -31,7 +31,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 |---|---|
 | `assets/scene.g` | Our additions (top camera, belt, regions) on top of RAI's `scenarios/pandasTable.g` |
 | `sim/scene.py` | `load_scene()`, `ROBOT_PREFIX` (1 = `l_`, 2 = `r_`), `HOME_Q` |
-| `sim/conveyor.py` | `Conveyor`: `spawn_box`, `step`, `on_belt`, `attach`, `remove`, `missed`, `spawned`; `ConveyorConfig` (`max_boxes` ends the stream); `belt_geometry` |
+| `sim/conveyor.py` | `Conveyor`: `spawn_box` (optional `x`, `y` for scripted scenes), `step`, `on_belt`, `attach`, `remove`, `missed`, `spawned`; `ConveyorConfig` (`max_boxes` ends the stream); `belt_geometry` |
 | `sim/regions.py` | `REGIONS`, `DEFAULT_TARGET` (red A, green B, blue C, gray bin), `region_contains` |
 | `sim/world.py` | `World`: scene + conveyor + clock (`step`, `run`) |
 | `sim/ground_truth.py` | `GroundTruthDetector(world).detect()` |
@@ -49,6 +49,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `planning/execute.py` | `execute_path(world, path, duration)`, `follow_path` (generator, one robot's joints only), `grasp(world, robot_id, box=None)` (returns box name or None), `release(world, box, region)` (kinematic) |
 | `metrics.py` | `ExperimentConfig` / `load_config(json)`, `run_experiment(config)` returns one flat record (config + metrics), `summarize(stats, boxes, duration)`, `append_csv` |
 | `coordination/allocation.py` | `allocate(world, tracks, first_seen, blocked, roles, free_robots, busy_regions, shared_area_busy, log)`: at most one `Assignment` per free robot, most urgent (robot, box) pair first, one robot at a time in the shared area (`uses_shared_area`, `CoordinationLog`); `FIXED_ROLES`, `SHARED_ROLES` (both robots sort green), `PICK_X`, `LEAD_TIME` |
+| `coordination/clear_and_sort.py` | `blockers(track, tracks, time)`, `plan_clear_and_sort(...)`: assignments (Robot 2 gray blocker, Robot 1 wanted box 3 s later); used by `run_robots(..., clear_and_sort=True)`, outcomes in `SortingStats.clear_and_sort` |
 | `sorting.py` | `run_robots(world, detect, duration, roles=FIXED_ROLES)`: tracker + `allocate` + one `PickPlaceTask` per robot, both arms move at once, returns `SortingStats`; `run_single_robot` |
 | `planning/pick_place.py` | `PickPlaceTask(world, assignment, track)`: non-blocking, `advance()` before every `world.step()`, moves only its own arm; `pick_and_place(...)` is the blocking form, returns `PickPlaceResult` |
 
@@ -61,6 +62,8 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 - A box can be reachable but not liftable at the edge of the workspace; `allocation.allocate` therefore requires a point 10 cm downstream and 15 cm up to be reachable too.
 - Each arm plans with the other arm static at its current pose, so two arms working close together collide. Priority rule: the shared area (belt x in (-0.3, 0.4) and region B) is used by one robot at a time, for its whole pick-and-place; the other robot may only take boxes outside of it. `SortingStats.conflicts` / `waiting_time` log it. Robot 2 picks only at x >= 0.4 (`allocation.PICK_X`): nearer to its reach limit (-0.2) the lift fails and the arm is left holding the box.
 - A pick plan can fail where IK says reachable (box just entering a robot's workspace): the sorting loop retries that track 0.5 s later instead of giving up.
+- The fingers close along the belt (box faces at -x / +x): a neighbour closer than 11 cm in front of or behind a box in the same lane is hit (the planner does not see it: it checks collisions with the boxes where they are at planning time). `allocate` skips such boxes. `plan_moving_pick(across_belt=True)` grasps on the -y / +y faces instead.
+- Clear-and-sort works only in the overlap of the workspaces (Robot 2 picks at x in [-0.1, 0.1], Robot 1 3 s later), so only up to 0.08 m/s, with the gray box on the robots' half of the belt (beyond the centre line Robot 2's arm reaches so low that it touches the wanted box and its lift cannot be planned), and mostly with the gray box in front. Outside these limits the pair is left alone.
 - A region holds one box: the sorting loop removes the previous box before the next one is placed there.
 - Rendering costs about 0.15 s per frame, so vision-in-the-loop runs are slow (36 s of simulation took about 2 min).
 - YOLO: a bounding box can contain part of an arm above the box; `boxes_to_detections` localizes from the pixels at box-top height only. The model test is skipped when the weights file is missing (CI). Python 3.14 starts data-loader workers by re-importing the script: training code needs `if __name__ == "__main__"`.

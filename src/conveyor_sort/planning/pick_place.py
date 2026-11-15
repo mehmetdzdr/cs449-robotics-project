@@ -29,8 +29,9 @@ class PickPlaceTask:
     failed grasp it goes home).
     """
 
-    def __init__(self, world: World, assignment: Assignment, track: Track):
+    def __init__(self, world: World, assignment: Assignment, track: Track, across_belt: bool = False):
         self.assignment = assignment
+        self.across_belt = across_belt     # grasp on the box faces at -y / +y (see plan_moving_pick)
         self.result = PickPlaceResult(False, 0.0, None, None)
         self._steps = self._run(world, assignment, track)
 
@@ -49,7 +50,8 @@ class PickPlaceTask:
                 yield True
             return True
 
-        if not (yield from run("pick", plan_moving_pick(C, robot, track, world.time, assignment.pick_time),
+        if not (yield from run("pick", plan_moving_pick(C, robot, track, world.time, assignment.pick_time,
+                                                        across_belt=self.across_belt),
                                assignment.pick_time - world.time)):
             return
         result.box = grasp(world, robot)
