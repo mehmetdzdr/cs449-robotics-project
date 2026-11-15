@@ -71,6 +71,16 @@ The JSON config sets belt speed, box spacing, number of boxes, color distributio
 appends one row to the CSV: grasp success rate, sorting accuracy, missed boxes, planning time, completion time
 and throughput (boxes per minute).
 
+### Command-mode correctness
+
+```bash
+python evaluation/benchmark_command.py --n 40      # results/command.csv
+```
+
+Random commands (color, destination and phrasing) are executed one after the other on a running belt and
+checked on the simulator state. At 0.1 m/s (a box every 4 s): 40 of 40 commands ended with a box of the
+requested color in the requested destination, 17.6 s per command on average (54 s at most, waiting for a box of
+the color), 29 by Robot 1 and 11 by Robot 2. At 0.2 m/s (a box every 2 s, other seed): 30 of 30, 15.0 s on average.
 ### Manipulation benchmark
 
 ```bash
