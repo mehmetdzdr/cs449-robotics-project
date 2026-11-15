@@ -89,13 +89,17 @@ def plan_home(C: ry.Config, robot_id: int, steps: int = 20) -> Plan:
     return _solve(komo)
 
 
-def plan_moving_pick(C: ry.Config, robot_id: int, track: Track, now: float, pick_time: float, steps: int = 20) -> Plan:
+def plan_moving_pick(C: ry.Config, robot_id: int, track: Track, now: float, pick_time: float, steps: int = 20,
+                     across_belt: bool = False) -> Plan:
     """Plan a grasp of a moving box: the gripper meets the box at `pick_time` where the track predicts it.
 
     The path must be executed in exactly `pick_time - now` seconds. During the last 20 % the gripper
     is already above the box and follows its predicted motion while descending, so the fingers come
     down around the moving box instead of sweeping through it. Infeasible if the predicted positions
     are out of reach.
+
+    The fingers close along the belt direction (on the box faces at -x and +x), so a neighbour closer than
+    about 10 cm in front of or behind the box is hit. With `across_belt` they close on the faces at -y and +y.
     """
     gripper = f"{ROBOT_PREFIX[robot_id]}gripper"
     target = C.addFrame("_pick_target").setPosition(track.predict(pick_time))   # world-aligned, like the boxes
@@ -106,7 +110,8 @@ def plan_moving_pick(C: ry.Config, robot_id: int, track: Track, now: float, pick
         komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
         komo.addObjective([], ry.FS.jointLimits, [], ry.OT.ineq)
         komo.addObjective([0.8, 1.0], ry.FS.vectorZ, [gripper], ry.OT.eq, [1e1], [0, 0, 1])
-        komo.addObjective([0.8, 1.0], ry.FS.scalarProductXY, [gripper, target.name], ry.OT.eq, [1e1])
+        komo.addObjective([0.8, 1.0], ry.FS.scalarProductXX if across_belt else ry.FS.scalarProductXY,
+                          [gripper, target.name], ry.OT.eq, [1e1])
         for k in range(round(0.8 * steps), steps + 1):          # follow the box in xy, waypoint by waypoint
             phase = k / steps
             predicted = track.predict(now + phase * (pick_time - now))

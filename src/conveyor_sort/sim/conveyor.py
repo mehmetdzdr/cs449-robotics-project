@@ -62,21 +62,26 @@ class Conveyor:
         """Number of boxes that have entered the belt so far."""
         return self._next_id
 
-    def spawn_box(self, color: BoxColor | None = None) -> str:
-        """Add a box at the belt start; random color (by color_weights) if none is given."""
+    def spawn_box(self, color: BoxColor | None = None, x: float | None = None, y: float | None = None) -> str:
+        """Add a box at the belt start; random color (by color_weights) if none is given.
+
+        For scripted scenes: `x` (world frame) puts it elsewhere along the belt, `y` is the offset from the centre line.
+        """
         if color is None:
             colors = list(self.config.color_weights)
             weights = np.array([self.config.color_weights[c] for c in colors], dtype=float)
             color = colors[self._rng.choice(len(colors), p=weights / weights.sum())]
         name = f"box_{self._next_id}"
         self._next_id += 1
-        y = self._rng.uniform(-self.config.lateral_jitter, self.config.lateral_jitter)
+        jitter = self._rng.uniform(-self.config.lateral_jitter, self.config.lateral_jitter)
+        y = jitter if y is None else y
         belt = self.C.getFrame(BELT)
         frame = self.C.addFrame(name, BELT)
         frame.setShape(ry.ST.ssBox, [BOX_SIZE, BOX_SIZE, BOX_SIZE, 0.005])
         frame.setColor(BOX_RGB[color])
         frame.setContact(1)
-        frame.setRelativePosition([-belt.getSize()[0] / 2 + BOX_SIZE / 2, y, belt.getSize()[2] / 2 + BOX_SIZE / 2])
+        x_rel = -belt.getSize()[0] / 2 + BOX_SIZE / 2 if x is None else x - belt.getPosition()[0]
+        frame.setRelativePosition([x_rel, y, belt.getSize()[2] / 2 + BOX_SIZE / 2])
         self.colors[name] = color
         return name
 

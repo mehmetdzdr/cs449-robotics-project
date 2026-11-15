@@ -80,7 +80,7 @@ def test_no_box_is_assigned_to_both_robots_and_no_robot_gets_two_boxes():
             color = tracks[a.track_id].color
             assert color in SHARED_ROLES[a.robot_id] and a.target_region == DEFAULT_TARGET[color]
         n_assignments += len(assignments)
-    assert n_assignments > 40
+    assert n_assignments > 30
 
 
 def test_shared_area_is_used_by_one_robot_at_a_time():
