@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from conveyor_sort.coordination.allocation import FIXED_ROLES, LEAD_TIME, SHARED_ROLES, allocate
+from conveyor_sort.coordination.allocation import (FIXED_ROLES, LEAD_TIME, SHARED_ROLES, CoordinationLog, allocate,
+                                                    uses_shared_area)
 from conveyor_sort.interfaces import BoxColor, Track
 from conveyor_sort.sim.conveyor import ConveyorConfig
 from conveyor_sort.sim.ground_truth import GroundTruthDetector
@@ -82,11 +83,47 @@ def test_no_box_is_assigned_to_both_robots_and_no_robot_gets_two_boxes():
     assert n_assignments > 40
 
 
-def test_shared_roles_in_the_sorting_loop():
-    world = World(ConveyorConfig(speed=0.1, spacing=0.4, seed=1))           # a box every 4 s: more than Robot 1 can sort
-    stats = run_robots(world, GroundTruthDetector(world).detect, duration=90.0, roles=SHARED_ROLES)
+def test_shared_area_is_used_by_one_robot_at_a_time():
+    assert uses_shared_area(0.0, "region_A") and uses_shared_area(0.7, "region_B")
+    assert not uses_shared_area(-0.5, "region_C") and not uses_shared_area(0.7, "bin_gray")
+
+    world = empty_world()
+    near, far = track(0, BoxColor.RED, 0.0, world), track(1, BoxColor.RED, -0.6, world)
+    log = CoordinationLog()
+    seen = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
+    # Robot 2 is working in the shared area: Robot 1 must wait with the box that needs it ...
+    assert allocate(world, [near], seen, {}, SHARED_ROLES, [1], shared_area_busy=True, log=log) == []
+    assert log.conflicts == {(1, 0)} and log.waiting == {1}
+    # ... but may take a box outside of it meanwhile
+    (assignment,) = allocate(world, [near, far], seen, {}, SHARED_ROLES, [1], shared_area_busy=True, log=log)
+    assert assignment.track_id == 1 and log.waiting == set()
+
+    # both free and both want the shared area: the more urgent box wins, the other robot waits
+    blue, green = track(2, BoxColor.BLUE, 0.1, world), track(3, BoxColor.GREEN, 0.6, world)
+    log = CoordinationLog()
+    (assignment,) = allocate(world, [blue, green], seen, {}, SHARED_ROLES, [1, 2], log=log)
+    assert (assignment.robot_id, assignment.track_id) == (1, 2)
+    assert log.conflicts == {(2, 3)} and log.waiting == {2}
+
+
+def test_shared_roles_in_the_sorting_loop_without_collisions():
+    config = ConveyorConfig(speed=0.15, spacing=0.3, seed=3)                # a box every 2 s; collided before the priority rule
+    world = World(config)
+    collisions = []
+
+    def check(world):
+        world.C.computeCollisions()
+        collisions.extend(world.C.getCollisions(0.0))
+
+    stats = run_robots(world, GroundTruthDetector(world).detect, duration=90.0, roles=SHARED_ROLES, on_step=check)
     green_by_robot_2 = [e for e in stats.events if e.robot_id == 2 and e.color == BoxColor.GREEN]
     assert len(green_by_robot_2) >= 2 and all(e.correct and e.region == "region_B" for e in green_by_robot_2)
-    assert stats.failed == 0 and stats.sorted_correctly == len(stats.events) >= 13
-    fixed = World(ConveyorConfig(speed=0.1, spacing=0.4, seed=1))
-    assert run_robots(fixed, GroundTruthDetector(fixed).detect, duration=90.0).sorted_correctly < stats.sorted_correctly
+    assert stats.failed == 0 and stats.sorted_correctly == len(stats.events) >= 15
+    assert collisions == []
+    assert stats.conflicts >= 2 and 1.0 < stats.waiting_time < 30.0
+    print(f"shared roles: {stats.sorted_correctly} sorted, {stats.conflicts} conflicts, waiting {stats.waiting_time:.1f} s")
+
+    fixed = World(config)                                                   # fixed roles never need the shared area twice
+    fixed_stats = run_robots(fixed, GroundTruthDetector(fixed).detect, duration=90.0)
+    assert fixed_stats.sorted_correctly < stats.sorted_correctly
+    assert fixed_stats.conflicts == 0 and fixed_stats.waiting_time == 0.0

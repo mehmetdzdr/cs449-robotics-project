@@ -57,3 +57,4 @@ for e in stats.events:
     outcome = "ok" if e.correct else f"FAILED at {e.failed_stage}"
     print(f"t = {e.time:6.1f} s  robot {e.robot_id}  {e.color.value:5s} -> {e.region}: {outcome}  (planning {e.planning_time:.2f} s)")
 print(f"sorted correctly: {stats.sorted_correctly}, failed: {stats.failed}, left the belt: {stats.missed}")
+print(f"shared area: {stats.conflicts} conflicts, {stats.waiting_time:.1f} s waiting")
