@@ -38,7 +38,8 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `perception/camera.py` | `Camera.capture()` returns `Observation` (rgb, depth, GT segmentation, intrinsics, pose) |
 | `perception/localization.py` | `mask_to_world(mask, obs)`: mask + depth to box centre in world frame |
 | `perception/hsv.py` | `HsvDetector(belt).detect(obs)`: HSV thresholds in the belt ROI, blobs, height check |
-| `perception/yolo.py` | `YoloDetector(belt, weights).detect(obs)`: fine-tuned YOLO11n (`weights/yolo_boxes.pt`, not in git); `boxes_to_detections`: bounding boxes + depth to `Detection`s. `scripts/train_yolo.py` trains it |
+| `perception/yolo.py` | `YoloDetector(belt, weights).detect(obs)` / `.boxes(obs)`: fine-tuned YOLO11n (`weights/yolo_boxes.pt`, not in git); `localize(mask, obs, belt)`: position from the mask pixels at box-top height; `boxes_to_detections`. `scripts/train_yolo.py` trains it |
+| `perception/sam.py` | `SamDetector(belt, model="mobile_sam" or "sam_b").detect(obs)` / `.masks(obs)`: YOLO boxes as SAM prompts, masks localized with `localize`; SAM weights are downloaded by Ultralytics into `weights/` |
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
 | `prediction/tracker.py` | `Tracker(predictor="cv" or "kalman").update(detections, time)`: association + constant-velocity window fit or Kalman filter |
 | `prediction/benchmark.py` | `prediction_errors(predictor, noise, horizons, frames)`: future-position errors on a synthetic box; `evaluation/benchmark_prediction.py` writes `results/prediction.csv` and `evaluation/figures/prediction_error.png` (needs `.[eval]`) |
