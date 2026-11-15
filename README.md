@@ -70,6 +70,20 @@ The JSON config sets belt speed, box spacing, number of boxes, color distributio
 appends one row to the CSV: grasp success rate, sorting accuracy, missed boxes, planning time, completion time
 and throughput (boxes per minute).
 
+### Prediction benchmark
+
+```bash
+pip install -e ".[eval]"
+python evaluation/benchmark_prediction.py     # results/prediction.csv and evaluation/figures/prediction_error.png
+```
+
+![prediction error against horizon](evaluation/figures/prediction_error.png)
+
+Mean position error 3 s ahead (the lead time of a pick), 500 trials: without noise both predictors are exact.
+With 2 mm detection noise the window fit stays at 6.5 to 6.8 mm however long the box has been tracked; the
+Kalman filter is equal after 1 s of tracking (6.9 mm) and reaches 4.1 mm after 2 s and 4.0 mm after 5 s.
+With 5 mm noise: 16.3 to 16.9 mm against 17.2, 10.3 and 10.0 mm.
+
 ## Synthetic dataset for YOLO
 
 Labels come from the simulator's ground-truth segmentation, so nothing is labelled by hand:
