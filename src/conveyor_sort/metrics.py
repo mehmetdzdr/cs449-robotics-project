@@ -9,10 +9,8 @@ import numpy as np
 
 from conveyor_sort.coordination.allocation import COLORED, FIXED_ROLES, SHARED_ROLES
 from conveyor_sort.interfaces import BoxColor
-from conveyor_sort.perception.camera import Camera
-from conveyor_sort.perception.hsv import HsvDetector
+from conveyor_sort.perception.detectors import get_detector
 from conveyor_sort.sim.conveyor import ConveyorConfig
-from conveyor_sort.sim.ground_truth import GroundTruthDetector
 from conveyor_sort.sim.world import World
 from conveyor_sort.sorting import SortingStats, run_robots
 
@@ -31,7 +29,7 @@ class ExperimentConfig:
     boxes: int = 10                       # number of boxes sent down the belt
     color_weights: dict[str, float] = field(default_factory=lambda: {c.value: 1.0 for c in BoxColor})
     seed: int = 0
-    detector: str = "gt"                  # "gt" (ground truth) or "hsv"
+    detector: str = "gt"                  # one of perception.detectors.DETECTORS
     duration: float | None = None         # simulation time [s]; None: until the last box has passed the belt
     mode: str = "single"                  # "single", "fixed" or "coordinated" (see MODES)
     blocked_pairs: float = 0.0            # share of spawns that are a gray box right in front of a colored one
@@ -74,13 +72,7 @@ def run_experiment(config: ExperimentConfig, on_step: Callable[[World], None] | 
     roles, clear_and_sort = MODES[config.mode]
     world = World(ConveyorConfig(config.speed, config.spacing, color_weights=weights, seed=config.seed,
                                  max_boxes=config.boxes, blocked_pairs=config.blocked_pairs))
-    if config.detector == "hsv":
-        camera, hsv = Camera(world.C), HsvDetector(world.conveyor.geometry)
-        detect = lambda: hsv.detect(camera.capture(world.time))
-    elif config.detector == "gt":
-        detect = GroundTruthDetector(world).detect
-    else:
-        raise ValueError(f"unknown detector '{config.detector}'")
+    detect = get_detector(config.detector, world)
     belt = world.conveyor.geometry
     duration = config.duration or ((config.boxes - 1) * config.spacing + belt.x_end - belt.x_start) / config.speed + FINISH_TIME
     stats = run_robots(world, detect, duration, roles, on_step, clear_and_sort)

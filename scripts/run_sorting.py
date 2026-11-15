@@ -10,15 +10,14 @@ import argparse
 import cv2
 
 from conveyor_sort.perception.camera import Camera
-from conveyor_sort.perception.hsv import HsvDetector
+from conveyor_sort.perception.detectors import DETECTORS, get_detector
 from conveyor_sort.sim.conveyor import ConveyorConfig
-from conveyor_sort.sim.ground_truth import GroundTruthDetector
 from conveyor_sort.sim.world import World
 from conveyor_sort.coordination.allocation import FIXED_ROLES, SHARED_ROLES
 from conveyor_sort.sorting import run_robots
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--detector", choices=["gt", "hsv"], default="gt", help="ground truth or HSV vision")
+parser.add_argument("--detector", choices=DETECTORS, default="gt", help="ground truth, HSV, YOLO, YOLO + (Mobile)SAM")
 parser.add_argument("--robots", type=int, choices=[1, 2], default=1, help="1: Robot 1 alone, 2: fixed roles")
 parser.add_argument("--shared", action="store_true", help="with --robots 2: both robots may sort green boxes")
 parser.add_argument("--clear-and-sort", action="store_true", help="with --robots 2: Robot 2 removes a gray box that blocks a wanted box")
@@ -32,11 +31,7 @@ args = parser.parse_args()
 
 world = World(ConveyorConfig(speed=args.speed, spacing=args.spacing, seed=args.seed))
 camera = Camera(world.C)
-if args.detector == "hsv":
-    hsv = HsvDetector(world.conveyor.geometry)
-    detect = lambda: hsv.detect(camera.capture(world.time))
-else:
-    detect = GroundTruthDetector(world).detect
+detect = get_detector(args.detector, world, camera)
 writer = cv2.VideoWriter(args.video, cv2.VideoWriter_fourcc(*"mp4v"), round(1 / world.dt), (1280, 720)) if args.video else None
 
 

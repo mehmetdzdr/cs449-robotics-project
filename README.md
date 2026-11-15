@@ -46,7 +46,7 @@ python scripts/check_env.py        # must end with ENVIRONMENT OK
 python scripts/view_scene.py       # opens the scene in the RAI viewer
 python scripts/run_conveyor.py --view   # boxes moving on the belt, no robots
 python scripts/run_command.py "pick a blue box and place it at B" --view   # command mode
-python scripts/run_sorting.py --view    # Robot 1 sorts colored boxes (--detector hsv for vision, --robots 2 adds Robot 2 for gray boxes)
+python scripts/run_sorting.py --view    # Robot 1 sorts colored boxes (--detector gt|hsv|yolo|sam|sam_b, --robots 2 adds Robot 2 for gray boxes)
 pytest
 ```
 
@@ -142,6 +142,19 @@ Fine-tunes the pretrained `yolo11n` on the synthetic dataset and copies the best
 Validation (400 images, 1793 boxes): mAP50 0.995, mAP50-95 0.995, precision and recall 0.999. On 25 new random
 scenes with the arms over the belt: 115 of 115 well-visible boxes found, no false positives, position error
 1.7 mm mean / 3.6 mm max, 29 ms per frame on the GPU.
+
+## SAM segmentation
+
+`SamDetector` prompts SAM with the YOLO boxes and localizes each box from its mask. The SAM weights are
+downloaded by Ultralytics into `weights/` on first use (MobileSAM 41 MB, SAM-B 375 MB).
+
+Measured on 15 new random scenes (74 well-visible boxes, RTX 3070 Laptop GPU), all boxes found, no false positives:
+
+| detector | position error mean / max | mask IoU mean / min | time per frame |
+|---|---|---|---|
+| YOLO, depth inside the bounding box | 1.7 / 3.6 mm | (no mask) | 29 ms |
+| YOLO + MobileSAM (1280 px) | 1.7 / 3.8 mm | 0.975 / 0.933 | 117 ms |
+| YOLO + SAM-B (1024 px) | 1.8 / 3.6 mm | 0.972 / 0.849 | 281 ms |
 
 ## Milestones
 
