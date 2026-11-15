@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from typing import Callable
 
-from conveyor_sort.coordination.allocation import COLORED, FIXED_ROLES, allocate
+from conveyor_sort.coordination.allocation import COLORED, FIXED_ROLES, CoordinationLog, allocate, uses_shared_area
 from conveyor_sort.interfaces import BoxColor, Detection, Track
 from conveyor_sort.planning.pick_place import PickPlaceTask
 from conveyor_sort.prediction.tracker import Tracker
@@ -28,6 +28,8 @@ class SortEvent:
 class SortingStats:
     events: list[SortEvent] = field(default_factory=list)
     missed: int = 0            # boxes that left the belt end (any color)
+    conflicts: int = 0         # (robot, box) pairs refused at least once because the other robot held the shared area
+    waiting_time: float = 0.0  # robot time spent idle only because the shared area was occupied [s]
 
     @property
     def sorted_correctly(self) -> int:
@@ -54,6 +56,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
     tracks: list[Track] = []
     last_placed: dict[str, str] = {}       # region -> box lying in it
     tasks: dict[int, tuple[PickPlaceTask, Track]] = {}
+    log = CoordinationLog()
     end_time = world.time + duration
     missed_before = world.conveyor.missed
 
@@ -72,11 +75,15 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
 
     while world.time < end_time:
         moved: set[int] = set()            # robots that have made their move for this simulation step
+        log.waiting = set()
         while True:
             free = [robot_id for robot_id in roles if robot_id not in tasks]
             by_id = {track.track_id: track for track in tracks}
             busy_regions = {task.assignment.target_region for task, _ in tasks.values()}
-            for assignment in allocate(world, tracks, first_seen, blocked, roles, free, busy_regions) if free else []:
+            shared_busy = any(uses_shared_area(task.assignment.pick_position[0], task.assignment.target_region)
+                              for task, _ in tasks.values())
+            for assignment in (allocate(world, tracks, first_seen, blocked, roles, free, busy_regions, shared_busy, log)
+                               if free else []):
                 blocked[assignment.track_id] = float("inf")
                 if assignment.target_region in last_placed:   # regions are emptied (box collected) before the next box arrives
                     world.conveyor.remove(last_placed.pop(assignment.target_region))
@@ -89,6 +96,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
                     moved.add(robot_id)
                 else:
                     finish(robot_id)
+        stats.waiting_time += world.dt * len(log.waiting - set(tasks))
         world.step()
         tracks[:] = tracker.update(detect(), world.time)
         for track in tracks:
@@ -96,6 +104,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         if on_step:
             on_step(world)
     stats.missed = world.conveyor.missed - missed_before
+    stats.conflicts = len(log.conflicts)
     return stats
 
 
