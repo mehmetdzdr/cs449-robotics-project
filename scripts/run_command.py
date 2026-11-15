@@ -11,14 +11,13 @@ import cv2
 from conveyor_sort.command.mode import CommandMode
 from conveyor_sort.command.parser import parse_command
 from conveyor_sort.perception.camera import Camera
-from conveyor_sort.perception.hsv import HsvDetector
+from conveyor_sort.perception.detectors import DETECTORS, get_detector
 from conveyor_sort.sim.conveyor import ConveyorConfig
-from conveyor_sort.sim.ground_truth import GroundTruthDetector
 from conveyor_sort.sim.world import World
 
 parser = argparse.ArgumentParser()
 parser.add_argument("commands", nargs="*", help='e.g. "pick a blue box and place it at B"; none: read from the keyboard')
-parser.add_argument("--detector", choices=["gt", "hsv"], default="gt", help="ground truth or HSV vision")
+parser.add_argument("--detector", choices=DETECTORS, default="gt", help="ground truth, HSV, YOLO, YOLO + (Mobile)SAM")
 parser.add_argument("--speed", type=float, default=0.1, help="belt speed [m/s]")
 parser.add_argument("--spacing", type=float, default=0.4, help="distance between boxes [m]")
 parser.add_argument("--seed", type=int, default=0)
@@ -29,11 +28,7 @@ args = parser.parse_args()
 
 world = World(ConveyorConfig(speed=args.speed, spacing=args.spacing, seed=args.seed))
 camera = Camera(world.C)
-if args.detector == "hsv":
-    hsv = HsvDetector(world.conveyor.geometry)
-    detect = lambda: hsv.detect(camera.capture(world.time))
-else:
-    detect = GroundTruthDetector(world).detect
+detect = get_detector(args.detector, world, camera)
 writer = cv2.VideoWriter(args.video, cv2.VideoWriter_fourcc(*"mp4v"), round(1 / world.dt), (1280, 720)) if args.video else None
 
 
