@@ -10,7 +10,7 @@ pip install -e ".[dev]"                      # core deps; ".[learning]" adds YOL
 python scripts/check_env.py                  # must print ENVIRONMENT OK
 pytest -q                                    # headless Linux: xvfb-run -a pytest -q
 python scripts/run_conveyor.py --view        # conveyor only (or --video out.mp4 headless)
-python scripts/run_sorting.py --view          # Robot 1 sorts colored boxes (--robots 2: Robot 2 removes gray; --detector gt|hsv, --video out.mp4)
+python scripts/run_autonomous.py --view      # autonomous mode (--mode single|fixed|coordinated, --scene clear-and-sort, --detector, --speed, --seed, --video out.mp4)
 python scripts/run_command.py "pick a blue box and place it at B" --view   # command mode (no command: type them in)
 python scripts/generate_dataset.py --n 2000 --out data/boxes [--preview]
 python evaluation/run_experiment.py evaluation/configs/example.json   # one run from a JSON config, metrics appended to results/runs.csv
