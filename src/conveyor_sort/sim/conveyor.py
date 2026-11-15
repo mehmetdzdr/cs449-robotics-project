@@ -41,6 +41,7 @@ class ConveyorConfig:
     lateral_jitter: float = 0.08     # boxes enter at belt centre +- this offset in y [m]
     color_weights: dict[BoxColor, float] = field(default_factory=lambda: {c: 1.0 for c in BoxColor})
     seed: int = 0
+    max_boxes: int | None = None     # stop spawning after this many boxes (None: endless)
 
 
 class Conveyor:
@@ -55,6 +56,11 @@ class Conveyor:
         self._next_id = 0
         self._since_spawn = self.config.spacing   # belt travel since the last spawn; first box enters at once
         self.missed = 0                           # boxes that reached the belt end unpicked
+
+    @property
+    def spawned(self) -> int:
+        """Number of boxes that have entered the belt so far."""
+        return self._next_id
 
     def spawn_box(self, color: BoxColor | None = None) -> str:
         """Add a box at the belt start; random color (by color_weights) if none is given."""
@@ -107,4 +113,5 @@ class Conveyor:
         self._since_spawn += advance
         if self._since_spawn >= self.config.spacing:
             self._since_spawn -= self.config.spacing
-            self.spawn_box()
+            if self.config.max_boxes is None or self._next_id < self.config.max_boxes:
+                self.spawn_box()

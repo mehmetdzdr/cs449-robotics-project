@@ -1,0 +1,9 @@
+{
+  "name": "example",
+  "speed": 0.1,
+  "spacing": 0.6,
+  "boxes": 10,
+  "color_weights": {"red": 1, "green": 1, "blue": 1, "gray": 1},
+  "seed": 0,
+  "detector": "gt"
+}

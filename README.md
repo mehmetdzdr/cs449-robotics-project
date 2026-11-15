@@ -60,6 +60,16 @@ Requires Python 3.10 or newer.
 | `GLFW error ... DISPLAY environment variable is missing` (headless Linux, SSH, CI) | `sudo apt install xvfb`, then prefix commands with `xvfb-run -a`, e.g. `xvfb-run -a pytest` |
 | `FreeType Error: Failed to load font` warning | Harmless; only text overlays in the viewer are disabled |
 
+## Experiments
+
+```bash
+python evaluation/run_experiment.py evaluation/configs/example.json --out results/runs.csv
+```
+
+The JSON config sets belt speed, box spacing, number of boxes, color distribution, seed and detector. Each run
+appends one row to the CSV: grasp success rate, sorting accuracy, missed boxes, planning time, completion time
+and throughput (boxes per minute).
+
 ## Synthetic dataset for YOLO
 
 Labels come from the simulator's ground-truth segmentation, so nothing is labelled by hand:

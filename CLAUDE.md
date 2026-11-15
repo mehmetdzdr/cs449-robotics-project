@@ -12,6 +12,7 @@ pytest -q                                    # headless Linux: xvfb-run -a pytes
 python scripts/run_conveyor.py --view        # conveyor only (or --video out.mp4 headless)
 python scripts/run_sorting.py --view          # Robot 1 sorts colored boxes (--robots 2: Robot 2 removes gray; --detector gt|hsv, --video out.mp4)
 python scripts/generate_dataset.py --n 2000 --out data/boxes [--preview]
+python evaluation/run_experiment.py evaluation/configs/example.json   # one run from a JSON config, metrics appended to results/runs.csv
 ```
 
 Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that renders must run under `xvfb-run -a`.
@@ -29,7 +30,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 |---|---|
 | `assets/scene.g` | Our additions (top camera, belt, regions) on top of RAI's `scenarios/pandasTable.g` |
 | `sim/scene.py` | `load_scene()`, `ROBOT_PREFIX` (1 = `l_`, 2 = `r_`), `HOME_Q` |
-| `sim/conveyor.py` | `Conveyor`: `spawn_box`, `step`, `on_belt`, `attach`, `remove`, `missed`; `ConveyorConfig`; `belt_geometry` |
+| `sim/conveyor.py` | `Conveyor`: `spawn_box`, `step`, `on_belt`, `attach`, `remove`, `missed`, `spawned`; `ConveyorConfig` (`max_boxes` ends the stream); `belt_geometry` |
 | `sim/regions.py` | `REGIONS`, `DEFAULT_TARGET` (red A, green B, blue C, gray bin), `region_contains` |
 | `sim/world.py` | `World`: scene + conveyor + clock (`step`, `run`) |
 | `sim/ground_truth.py` | `GroundTruthDetector(world).detect()` |
@@ -41,6 +42,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
 | `command/parser.py` | `parse_command(text)`: text to `Command` (color + region), `ValueError` with a user message if invalid |
 | `planning/execute.py` | `execute_path(world, path, duration)`, `follow_path` (generator, one robot's joints only), `grasp(world, robot_id, box=None)` (returns box name or None), `release(world, box, region)` (kinematic) |
+| `metrics.py` | `ExperimentConfig` / `load_config(json)`, `run_experiment(config)` returns one flat record (config + metrics), `summarize(stats, boxes, duration)`, `append_csv` |
 | `sorting.py` | `run_robots(world, detect, duration, roles=FIXED_ROLES)`: tracker + `choose_track` + one `PickPlaceTask` per robot, both arms move at once, returns `SortingStats`; `run_single_robot` |
 | `planning/pick_place.py` | `PickPlaceTask(world, assignment, track)`: non-blocking, `advance()` before every `world.step()`, moves only its own arm; `pick_and_place(...)` is the blocking form, returns `PickPlaceResult` |
 
