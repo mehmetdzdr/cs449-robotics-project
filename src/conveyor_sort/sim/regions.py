@@ -14,6 +14,9 @@ DEFAULT_TARGET = {
     BoxColor.GRAY: "bin_gray",
 }
 
+# which robots can place a box there (robot ids as in interfaces.Assignment)
+REGION_ROBOTS = {"region_A": (1,), "region_B": (1, 2), "region_C": (1,), "bin_gray": (2,)}
+
 
 def region_contains(C: ry.Config, region: str, position: np.ndarray) -> bool:
     """True if the xy of `position` (world frame) lies inside the region's footprint."""
