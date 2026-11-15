@@ -15,23 +15,29 @@ HEIGHT_TOLERANCE = 0.015      # pixels this close to the height of a box top bel
 MIN_TOP_PIXELS = 150          # of about 900 for a fully visible box
 
 
+def localize(mask: np.ndarray, obs: Observation, belt: BeltGeometry) -> np.ndarray | None:
+    """Box centre from a pixel mask that may also cover some belt, side faces or a part of an arm above the box:
+    only the pixels at the height of a box top are used. None if there are too few of them."""
+    vs, us = np.nonzero(mask)
+    heights = pixels_to_world(us, vs, obs.depth[vs, us], obs)[:, 2]
+    on_top = np.abs(heights - (belt.z_top + BOX_SIZE)) < HEIGHT_TOLERANCE
+    if on_top.sum() < MIN_TOP_PIXELS:
+        return None
+    top = np.zeros(obs.depth.shape, bool)
+    top[vs[on_top], us[on_top]] = True
+    return mask_to_world(top, obs)
+
+
 def boxes_to_detections(xyxy: np.ndarray, classes: np.ndarray, confidences: np.ndarray,
                         obs: Observation, belt: BeltGeometry) -> list[Detection]:
-    """Localize each bounding box (pixels: u0, v0, u1, v1) with the depth image.
-
-    The rectangle also covers some belt, side faces and sometimes a part of an arm above the box. Only its
-    pixels at the height of a box top are used; a rectangle with too few of them is dropped.
-    """
+    """Localize each bounding box (pixels: u0, v0, u1, v1) with the depth image inside its rectangle."""
     detections = []
     for (u0, v0, u1, v1), cls, confidence in zip(xyxy, classes, confidences):
-        vs, us = np.mgrid[max(0, round(v0)):round(v1), max(0, round(u0)):round(u1)].reshape(2, -1)
-        heights = pixels_to_world(us, vs, obs.depth[vs, us], obs)[:, 2]
-        on_top = np.abs(heights - (belt.z_top + BOX_SIZE)) < HEIGHT_TOLERANCE
-        if on_top.sum() >= MIN_TOP_PIXELS:
-            mask = np.zeros(obs.depth.shape, bool)
-            mask[vs[on_top], us[on_top]] = True
-            detections.append(Detection(BoxColor(CLASSES[int(cls)]), mask_to_world(mask, obs), float(confidence),
-                                        obs.timestamp))
+        mask = np.zeros(obs.depth.shape, bool)
+        mask[max(0, round(v0)):round(v1), max(0, round(u0)):round(u1)] = True
+        position = localize(mask, obs, belt)
+        if position is not None:
+            detections.append(Detection(BoxColor(CLASSES[int(cls)]), position, float(confidence), obs.timestamp))
     return detections
 
 
@@ -42,8 +48,11 @@ class YoloDetector:
         self.confidence = confidence
         self.model = YOLO(str(weights))
 
-    def detect(self, obs: Observation) -> list[Detection]:
+    def boxes(self, obs: Observation) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Bounding boxes (N, 4) as u0, v0, u1, v1 in pixels, class ids (N,) and confidences (N,)."""
         bgr = np.ascontiguousarray(obs.rgb[..., ::-1])       # Ultralytics expects BGR for numpy images
         boxes = self.model.predict(bgr, imgsz=IMAGE_SIZE, conf=self.confidence, verbose=False)[0].boxes
-        return boxes_to_detections(boxes.xyxy.cpu().numpy(), boxes.cls.cpu().numpy(), boxes.conf.cpu().numpy(),
-                                   obs, self.belt)
+        return boxes.xyxy.cpu().numpy(), boxes.cls.cpu().numpy(), boxes.conf.cpu().numpy()
+
+    def detect(self, obs: Observation) -> list[Detection]:
+        return boxes_to_detections(*self.boxes(obs), obs, self.belt)
