@@ -1,21 +1,14 @@
-"""Autonomous sorting loop: detect, track, and for every robot choose a box of its colors, pick and place it, repeat."""
+"""Autonomous sorting loop: detect, track, allocate boxes to free robots, pick and place them, repeat."""
 from dataclasses import dataclass, field
 from typing import Callable
 
-import numpy as np
-
-from conveyor_sort.interfaces import Assignment, BoxColor, Detection, Track
+from conveyor_sort.coordination.allocation import COLORED, FIXED_ROLES, allocate
+from conveyor_sort.interfaces import BoxColor, Detection, Track
 from conveyor_sort.planning.pick_place import PickPlaceTask
-from conveyor_sort.planning.reach import is_reachable
 from conveyor_sort.prediction.tracker import Tracker
 from conveyor_sort.sim.regions import DEFAULT_TARGET, region_contains
 from conveyor_sort.sim.world import World
 
-LEAD_TIME = 3.0        # time from the decision to the grasp [s]
-MIN_TRACK_AGE = 1.0    # a track must have been followed this long before it is picked (velocity estimate settled) [s]
-REACH_MARGIN = [0.1, 0.0, 0.15]   # safety margin of the pick position: downstream and up (lift height) [m]
-MAX_TRACK_GAP = 0.2    # ... and must have been seen this recently [s]
-PICK_X_MIN = {2: 0.4}  # no coordination yet: Robot 2 picks only downstream of Robot 1's reach (x <= 0.2), with clearance [m]
 RETRY_DELAY = 0.5      # a box whose pick could not be planned is tried again after this time [s]
 
 
@@ -45,38 +38,12 @@ class SortingStats:
         return sum(not e.success for e in self.events)
 
 
-def choose_track(world: World, tracks: list[Track], first_seen: dict[int, float],
-                 robot_id: int, colors: set[BoxColor], blocked: dict[int, float]) -> Track | None:
-    """The most downstream box of a wanted color that the robot can still reach at the pick time.
-
-    `blocked` maps a track id to the time before which the track must not be chosen."""
-    pick_time = world.time + LEAD_TIME
-    candidates = [
-        t for t in tracks
-        if t.color in colors and world.time >= blocked.get(t.track_id, 0.0)
-        and world.time - first_seen[t.track_id] >= MIN_TRACK_AGE
-        and world.time - t.timestamp <= MAX_TRACK_GAP
-    ]
-    for track in sorted(candidates, key=lambda t: -t.predict(pick_time)[0]):
-        position = track.predict(pick_time)
-        if position[0] < PICK_X_MIN.get(robot_id, -np.inf):
-            continue
-        # at the edge of the workspace a box can be reached but not lifted: also require a point
-        # further downstream and at lift height to be reachable
-        if is_reachable(world.C, robot_id, position) and is_reachable(world.C, robot_id, position + REACH_MARGIN):
-            return track
-    return None
-
-
-COLORED = (BoxColor.RED, BoxColor.GREEN, BoxColor.BLUE)
-FIXED_ROLES = {1: COLORED, 2: (BoxColor.GRAY,)}    # Robot 1 sorts, Robot 2 removes gray boxes
-
-
 def run_robots(world: World, detect: Callable[[], list[Detection]], duration: float,
                roles: dict[int, tuple[BoxColor, ...]] = FIXED_ROLES,
                on_step: Callable[[World], None] | None = None) -> SortingStats:
     """Every robot in `roles` (robot_id -> colors) sorts boxes of its colors into their default regions for
-    `duration` seconds of simulation time. The robots work at the same time and do not coordinate.
+    `duration` seconds of simulation time. The robots work at the same time; `allocate` decides who takes
+    which box (with `SHARED_ROLES` green boxes go to whichever robot is free).
 
     `detect()` returns the detections of the current camera frame (ground truth or a vision detector).
     """
@@ -90,38 +57,38 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
     end_time = world.time + duration
     missed_before = world.conveyor.missed
 
-    def advance(robot_id: int) -> None:
-        """Move the robot by one step; when it is free, start on the next box."""
-        while True:
-            if robot_id not in tasks:
-                track = choose_track(world, tracks, first_seen, robot_id, set(roles[robot_id]), blocked)
-                if track is None:
-                    return
-                blocked[track.track_id] = float("inf")
-                region = DEFAULT_TARGET[track.color]
-                if region in last_placed:      # regions are emptied (box collected) before the next box arrives
-                    world.conveyor.remove(last_placed.pop(region))
-                pick_time = world.time + LEAD_TIME
-                assignment = Assignment(robot_id, track.track_id, region, pick_time, track.predict(pick_time))
-                tasks[robot_id] = PickPlaceTask(world, assignment, track), track
-            task, track = tasks[robot_id]
-            if task.advance():
-                return
-            del tasks[robot_id]
-            result, region = task.result, task.assignment.target_region
-            if result.failed_stage == "pick":      # no plan from here (e.g. box just entering the workspace): no
-                blocked[track.track_id] = world.time + RETRY_DELAY   # time was used, try again a little later
-                continue
-            correct = (result.success and DEFAULT_TARGET[world.conveyor.colors[result.box]] == region
-                       and region_contains(world.C, region, world.C.getFrame(result.box).getPosition()))
-            if result.success:
-                last_placed[region] = result.box
-            stats.events.append(SortEvent(world.time, track.color, region, result.success, correct,
-                                          result.failed_stage, result.planning_time, robot_id))
+    def finish(robot_id: int) -> None:
+        task, track = tasks.pop(robot_id)
+        result, region = task.result, task.assignment.target_region
+        if result.failed_stage == "pick":      # no plan from here (e.g. box just entering the workspace): no
+            blocked[track.track_id] = world.time + RETRY_DELAY   # time was used, try again a little later
+            return
+        correct = (result.success and DEFAULT_TARGET[world.conveyor.colors[result.box]] == region
+                   and region_contains(world.C, region, world.C.getFrame(result.box).getPosition()))
+        if result.success:
+            last_placed[region] = result.box
+        stats.events.append(SortEvent(world.time, track.color, region, result.success, correct,
+                                      result.failed_stage, result.planning_time, robot_id))
 
     while world.time < end_time:
-        for robot_id in roles:
-            advance(robot_id)
+        moved: set[int] = set()            # robots that have made their move for this simulation step
+        while True:
+            free = [robot_id for robot_id in roles if robot_id not in tasks]
+            by_id = {track.track_id: track for track in tracks}
+            busy_regions = {task.assignment.target_region for task, _ in tasks.values()}
+            for assignment in allocate(world, tracks, first_seen, blocked, roles, free, busy_regions) if free else []:
+                blocked[assignment.track_id] = float("inf")
+                if assignment.target_region in last_placed:   # regions are emptied (box collected) before the next box arrives
+                    world.conveyor.remove(last_placed.pop(assignment.target_region))
+                tasks[assignment.robot_id] = PickPlaceTask(world, assignment, by_id[assignment.track_id]), by_id[assignment.track_id]
+            pending = [robot_id for robot_id in tasks if robot_id not in moved]
+            if not pending:
+                break
+            for robot_id in pending:       # a task that ends (or cannot be planned) uses no time: allocate again
+                if tasks[robot_id][0].advance():
+                    moved.add(robot_id)
+                else:
+                    finish(robot_id)
         world.step()
         tracks[:] = tracker.update(detect(), world.time)
         for track in tracks:

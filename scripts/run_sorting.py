@@ -1,5 +1,5 @@
 """Autonomous sorting: Robot 1 sorts red / green / blue boxes into regions A / B / C; with --robots 2,
-Robot 2 removes gray boxes into the bin at the same time (fixed roles, no coordination).
+Robot 2 removes gray boxes into the bin at the same time; with --shared it also sorts green boxes (region B).
 
     python scripts/run_sorting.py --view
     python scripts/run_sorting.py --robots 2 --view
@@ -14,11 +14,13 @@ from conveyor_sort.perception.hsv import HsvDetector
 from conveyor_sort.sim.conveyor import ConveyorConfig
 from conveyor_sort.sim.ground_truth import GroundTruthDetector
 from conveyor_sort.sim.world import World
-from conveyor_sort.sorting import run_robots, run_single_robot
+from conveyor_sort.coordination.allocation import FIXED_ROLES, SHARED_ROLES
+from conveyor_sort.sorting import run_robots
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--detector", choices=["gt", "hsv"], default="gt", help="ground truth or HSV vision")
 parser.add_argument("--robots", type=int, choices=[1, 2], default=1, help="1: Robot 1 alone, 2: fixed roles")
+parser.add_argument("--shared", action="store_true", help="with --robots 2: both robots may sort green boxes")
 parser.add_argument("--duration", type=float, default=60.0, help="simulation time [s]")
 parser.add_argument("--speed", type=float, default=0.1, help="belt speed [m/s]")
 parser.add_argument("--spacing", type=float, default=0.6, help="distance between boxes [m]")
@@ -44,7 +46,10 @@ def on_step(world: World) -> None:
         writer.write(cv2.cvtColor(camera.capture(world.time).rgb, cv2.COLOR_RGB2BGR))
 
 
-stats = (run_robots if args.robots == 2 else run_single_robot)(world, detect, args.duration, on_step=on_step)
+roles = SHARED_ROLES if args.shared else FIXED_ROLES
+if args.robots == 1:
+    roles = {1: roles[1]}
+stats = run_robots(world, detect, args.duration, roles, on_step)
 if writer:
     writer.release()
     print(f"saved {args.video}")
