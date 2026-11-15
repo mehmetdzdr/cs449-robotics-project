@@ -56,14 +56,14 @@ def test_track_survives_short_occlusion_and_is_dropped_after_max_age():
     assert tracker.update([], 3.6) == []                                    # unseen for more than max_age
 
 
-def future_errors_mm(window: int, noise: float, horizon: float) -> np.ndarray:
+def future_errors_mm(window: int, noise: float, horizon: float, predictor: str = "cv", frames: int = 40) -> np.ndarray:
     """Track one box moving at 0.15 m/s from noisy detections (20 Hz), predict `horizon` s ahead; 200 trials."""
     rng = np.random.default_rng(0)
     velocity = np.array([0.15, 0.0, 0.0])
     errors = []
     for _ in range(200):
-        tracker = Tracker(window=window)
-        for k in range(40):
+        tracker = Tracker(window=window, predictor=predictor)
+        for k in range(frames):
             t = 0.05 * k
             position = velocity * t + np.append(rng.normal(0, noise, 2), 0.65)
             (track,) = tracker.update([Detection(BoxColor.RED, position, 1.0, t)], t)
@@ -87,3 +87,29 @@ def test_window_fit_beats_two_point_velocity():
     windowed = future_errors_mm(window=20, noise=0.002, horizon=2.0).mean()
     assert windowed < two_point / 10
     print(f"mean error at 2 s: two-point {two_point:.1f} mm, window 20: {windowed:.1f} mm")
+
+
+@pytest.mark.parametrize("predictor", ["cv", "kalman"])
+def test_both_predictors_track_and_estimate_velocity(predictor):
+    tracker = Tracker(predictor=predictor)
+    for k in range(20):
+        (track,) = tracker.update([det(BoxColor.RED, 0.01 * k, 0.2, 0.1 * k)], 0.1 * k)
+    assert track.track_id == 0
+    assert track.velocity == pytest.approx([0.1, 0, 0], abs=1e-3)
+    assert track.predict(2.9) == pytest.approx([0.29, 0.2, 0.65], abs=1e-3)
+
+
+def test_kalman_is_exact_without_noise():
+    assert future_errors_mm(window=20, noise=0.0, horizon=2.0, predictor="kalman").max() < 0.1
+
+
+@pytest.mark.parametrize("frames", [10, 20, 40, 100])
+def test_kalman_compared_with_constant_velocity_fit(frames):
+    """With few frames both use all detections and are equal; later the Kalman filter keeps using the whole
+    history while the fit only sees its window of 20, so the Kalman error keeps shrinking."""
+    cv = future_errors_mm(window=20, noise=0.002, horizon=2.0, frames=frames).mean()
+    kalman = future_errors_mm(window=20, noise=0.002, horizon=2.0, predictor="kalman", frames=frames).mean()
+    print(f"{frames} frames, mean error at 2 s: constant-velocity fit {cv:.2f} mm, Kalman {kalman:.2f} mm")
+    assert kalman < cv * 1.1
+    if frames >= 40:
+        assert kalman < cv * 0.75

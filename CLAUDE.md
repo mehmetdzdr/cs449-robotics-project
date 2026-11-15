@@ -37,7 +37,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `perception/localization.py` | `mask_to_world(mask, obs)`: mask + depth to box centre in world frame |
 | `perception/hsv.py` | `HsvDetector(belt).detect(obs)`: HSV thresholds in the belt ROI, blobs, height check |
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
-| `prediction/tracker.py` | `Tracker.update(detections, time)`: association + constant-velocity fit |
+| `prediction/tracker.py` | `Tracker(predictor="cv" or "kalman").update(detections, time)`: association + constant-velocity window fit or Kalman filter |
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
 | `planning/execute.py` | `execute_path(world, path, duration)`, `grasp(world, robot_id, box=None)` (returns box name or None), `release(world, box, region)` (kinematic) |
 | `sorting.py` | `run_single_robot(world, detect, duration)`: tracker + `choose_track` + `pick_and_place` loop, returns `SortingStats` |
