@@ -71,6 +71,39 @@ The JSON config sets belt speed, box spacing, number of boxes, color distributio
 appends one row to the CSV: grasp success rate, sorting accuracy, missed boxes, planning time, completion time
 and throughput (boxes per minute).
 
+### Perception benchmark
+
+```bash
+python evaluation/benchmark_perception.py      # needs .[learning] and the weights; results/perception.csv
+```
+
+40 random scenes per condition with the arms partly over the belt (not the scenes YOLO was trained on),
+about 180 well-visible boxes each, RTX 3070 Laptop GPU:
+
+| condition | detector | recall | precision | position error mean / max | mask IoU | time per frame |
+|---|---|---|---|---|---|---|
+| random arrangement | HSV | 1.000 | 1.000 | 1.7 / 5.4 mm | 0.979 | 15 ms |
+| | YOLO | 1.000 | 1.000 | 1.7 / 5.4 mm | (no mask) | 33 ms |
+| | YOLO + MobileSAM | 1.000 | 1.000 | 1.8 / 5.8 mm | 0.975 | 92 ms |
+| | YOLO + SAM-B | 1.000 | 1.000 | 1.7 / 5.6 mm | 0.982 | 232 ms |
+| dense (touching boxes) | HSV | 1.000 | 1.000 | 1.8 / 8.2 mm | 0.983 | 15 ms |
+| | YOLO | 0.988 | 1.000 | 1.9 / 9.4 mm | (no mask) | 43 ms |
+| | YOLO + MobileSAM | 0.988 | 1.000 | 1.8 / 8.9 mm | 0.957 | 92 ms |
+| | YOLO + SAM-B | 0.988 | 1.000 | 1.8 / 9.1 mm | 0.961 | 238 ms |
+| image 40 % darker | HSV | 0.908 | 1.000 | 1.8 / 5.4 mm | 0.899 | 13 ms |
+| | YOLO | 1.000 | 1.000 | 1.7 / 5.4 mm | (no mask) | 40 ms |
+| | YOLO + MobileSAM | 1.000 | 1.000 | 1.9 / 5.7 mm | 0.975 | 93 ms |
+| | YOLO + SAM-B | 1.000 | 1.000 | 1.7 / 5.6 mm | 0.981 | 234 ms |
+| image 40 % brighter | HSV | 0.919 | 1.000 | 1.9 / 11.6 mm | 0.908 | 14 ms |
+| | YOLO | 1.000 | 1.000 | 1.7 / 5.4 mm | (no mask) | 44 ms |
+| | YOLO + MobileSAM | 1.000 | 1.000 | 1.8 / 5.7 mm | 0.972 | 95 ms |
+| | YOLO + SAM-B | 1.000 | 1.000 | 1.7 / 5.6 mm | 0.983 | 235 ms |
+
+No detector reported a wrong color. The renderer has no light control: "darker" and "brighter" scale the image.
+HSV is the fastest and as accurate as the learned detectors under the lighting it was tuned for, but loses
+8 to 9 % of the boxes when the brightness changes. YOLO is unaffected. SAM adds masks but no accuracy,
+for 3 to 7 times the time.
+
 ### Command-mode correctness
 
 ```bash

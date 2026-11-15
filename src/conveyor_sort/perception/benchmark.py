@@ -1,0 +1,83 @@
+"""Perception benchmark: detectors compared on the same rendered scenes against simulator ground truth."""
+import time
+from dataclasses import replace
+from typing import Callable
+
+import numpy as np
+
+from conveyor_sort.interfaces import Detection
+from conveyor_sort.perception.camera import Camera, Observation
+from conveyor_sort.perception.dataset import randomize_scene
+from conveyor_sort.sim.conveyor import ConveyorConfig
+from conveyor_sort.sim.world import World
+
+MIN_VISIBLE_PIXELS = 600      # a box hidden by an arm beyond this (full box: about 900 px) need not be found
+MATCH_DISTANCE = 0.03         # a detection this close to a box centre is that box [m]
+TOUCH_GAP = 0.06              # centre distance of the touching boxes in the "dense" arrangement [m]: one box width
+
+
+def make_scenes(n: int, seed: int, arrangement: str = "random", brightness: float = 1.0) -> list[tuple[World, Observation]]:
+    """`n` random belt scenes with the arms partly over the belt, each with its own world.
+
+    "dense": every second box is moved next to its predecessor, touching it, along or across the belt.
+    `brightness` scales the image (the renderer has no light control; this imitates darker / brighter lighting).
+    """
+    rng = np.random.default_rng(seed)
+    scenes = []
+    for _ in range(n):
+        world = World(ConveyorConfig(seed=seed))
+        randomize_scene(world, rng)
+        if arrangement == "dense":
+            names = world.conveyor.on_belt()
+            for first, second in zip(names[::2], names[1::2]):
+                offset = [TOUCH_GAP, 0, 0] if rng.random() < 0.5 else [0, TOUCH_GAP * np.sign(-world.C.getFrame(first).getRelativePosition()[1] or 1), 0]
+                world.C.getFrame(second).setRelativePosition(world.C.getFrame(first).getRelativePosition() + offset)
+        obs = Camera(world.C).capture()
+        if brightness != 1.0:
+            obs = replace(obs, rgb=np.clip(obs.rgb.astype(float) * brightness, 0, 255).astype(np.uint8))
+        scenes.append((world, obs))
+    return scenes
+
+
+def evaluate(scenes: list[tuple[World, Observation]], detect: Callable[[Observation], list[Detection]],
+             masks: Callable[[Observation], list[np.ndarray]] | None = None) -> dict[str, float]:
+    """Metrics of one detector on the scenes.
+
+    recall: well-visible boxes found with the right color; wrong_color: found, but with another color;
+    precision: detections that lie on a box of their color; error: distance of a found box from its true centre;
+    mask_iou: best overlap of the detector's masks (`masks(obs)`, optional) with the true box mask;
+    time: seconds per `detect` call (first call excluded: model warm-up).
+    """
+    found = wrong_color = n_boxes = n_detections = on_a_box = 0
+    errors, ious, seconds = [], [], []
+    detect(scenes[0][1])
+    for world, obs in scenes:
+        start = time.perf_counter()
+        detections = detect(obs)
+        seconds.append(time.perf_counter() - start)
+        scene_masks = masks(obs) if masks else []
+        boxes = {name: (world.conveyor.colors[name], world.C.getFrame(name).getPosition()) for name in world.conveyor.on_belt()}
+        for name, (color, position) in boxes.items():
+            truth = obs.frame_mask(world.C, name)
+            if truth.sum() < MIN_VISIBLE_PIXELS:
+                continue
+            n_boxes += 1
+            distances = [np.linalg.norm(d.position - position) for d in detections if d.color == color]
+            if distances and min(distances) < MATCH_DISTANCE:
+                found += 1
+                errors.append(min(distances))
+            elif any(np.linalg.norm(d.position - position) < MATCH_DISTANCE for d in detections):
+                wrong_color += 1
+            if scene_masks:
+                ious.append(max((m & truth).sum() / (m | truth).sum() for m in scene_masks))
+        n_detections += len(detections)
+        on_a_box += sum(any(color == d.color and np.linalg.norm(d.position - position) < MATCH_DISTANCE + 0.01
+                            for color, position in boxes.values()) for d in detections)
+    return {
+        "boxes": n_boxes, "recall": found / n_boxes, "wrong_color": wrong_color / n_boxes,
+        "precision": on_a_box / n_detections if n_detections else np.nan,
+        "error_mean_mm": 1000 * float(np.mean(errors)) if errors else np.nan,
+        "error_max_mm": 1000 * float(np.max(errors)) if errors else np.nan,
+        "mask_iou": float(np.mean(ious)) if ious else np.nan,
+        "time_ms": 1000 * float(np.mean(seconds)),
+    }

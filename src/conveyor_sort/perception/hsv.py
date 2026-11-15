@@ -34,10 +34,11 @@ class HsvDetector:
     def __init__(self, belt: BeltGeometry):
         self.belt = belt
 
-    def detect(self, obs: Observation) -> list[Detection]:
+    def masks(self, obs: Observation) -> list[tuple[BoxColor, np.ndarray, np.ndarray]]:
+        """(color, pixel mask, position) of every blob that passes the size and height checks."""
         rows, cols = belt_roi(obs, self.belt)
         hsv = cv2.cvtColor(obs.rgb[rows, cols], cv2.COLOR_RGB2HSV)
-        detections = []
+        blobs = []
         for color, ranges in HSV_RANGES.items():
             mask = np.zeros(hsv.shape[:2], np.uint8)
             for low, high in ranges:
@@ -50,5 +51,8 @@ class HsvDetector:
                     position = mask_to_world(full, obs)
                     # a box centre lies half a box above the belt; this rejects gray blobs on the robot arms
                     if abs(position[2] - (self.belt.z_top + BOX_SIZE / 2)) < HEIGHT_TOLERANCE:
-                        detections.append(Detection(color, position, 1.0, obs.timestamp))
-        return detections
+                        blobs.append((color, full, position))
+        return blobs
+
+    def detect(self, obs: Observation) -> list[Detection]:
+        return [Detection(color, position, 1.0, obs.timestamp) for color, _, position in self.masks(obs)]

@@ -37,10 +37,11 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `sim/ground_truth.py` | `GroundTruthDetector(world).detect()` |
 | `perception/camera.py` | `Camera.capture()` returns `Observation` (rgb, depth, GT segmentation, intrinsics, pose) |
 | `perception/localization.py` | `mask_to_world(mask, obs)`: mask + depth to box centre in world frame |
-| `perception/hsv.py` | `HsvDetector(belt).detect(obs)`: HSV thresholds in the belt ROI, blobs, height check |
+| `perception/hsv.py` | `HsvDetector(belt).detect(obs)` / `.masks(obs)`: HSV thresholds in the belt ROI, blobs, height check |
 | `perception/yolo.py` | `YoloDetector(belt, weights).detect(obs)` / `.boxes(obs)`: fine-tuned YOLO11n (`weights/yolo_boxes.pt`, not in git); `localize(mask, obs, belt)`: position from the mask pixels at box-top height; `boxes_to_detections`. `scripts/train_yolo.py` trains it |
 | `perception/sam.py` | `SamDetector(belt, model="mobile_sam" or "sam_b").detect(obs)` / `.masks(obs)`: YOLO boxes as SAM prompts, masks localized with `localize`; SAM weights are downloaded by Ultralytics into `weights/` |
 | `perception/detectors.py` | `get_detector(name, world, camera=None)` returns `detect()` for `gt`, `hsv`, `yolo`, `sam` (MobileSAM), `sam_b`; used by the scripts (`--detector`) and `metrics.run_experiment` |
+| `perception/benchmark.py` | `make_scenes(n, seed, arrangement, brightness)`, `evaluate(scenes, detect, masks)`: recall, wrong color, precision, position error, mask IoU, time; `evaluation/benchmark_perception.py` compares HSV / YOLO / SAM and writes `results/perception.csv` |
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
 | `prediction/tracker.py` | `Tracker(predictor="cv" or "kalman").update(detections, time)`: association + constant-velocity window fit or Kalman filter |
 | `prediction/benchmark.py` | `prediction_errors(predictor, noise, horizons, frames)`: future-position errors on a synthetic box; `evaluation/benchmark_prediction.py` writes `results/prediction.csv` and `evaluation/figures/prediction_error.png` (needs `.[eval]`) |
@@ -70,7 +71,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 - A region holds one box: the sorting loop removes the previous box before the next one is placed there.
 - Rendering costs about 0.15 s per frame, so vision-in-the-loop runs are slow (36 s of simulation took about 2 min).
 - YOLO: a bounding box can contain part of an arm above the box; `boxes_to_detections` localizes from the pixels at box-top height only. The model test is skipped when the weights file is missing (CI). Python 3.14 starts data-loader workers by re-importing the script: training code needs `if __name__ == "__main__"`.
-- HSV detector: gray blobs on the robot arms are rejected by a height check from depth; touching boxes of the same color merge into one blob (not handled).
+- HSV detector: gray blobs on the robot arms are rejected by a height check from depth. Its thresholds are fixed: with the image 40 % darker or brighter it misses 8 to 9 % of the boxes (YOLO: none). Touching boxes were separated in the benchmark (the rounded box edges render darker), contrary to an earlier note here.
 - `World.step()` spawns a box on the very first step even with a huge `spacing`.
 - Belt: along +x, x in [-1.1, 1.1], centre y = 0.2, surface z = 0.62. Boxes: 6 cm cubes, kinematic motion (no physics).
 - Reach on the belt centre line: Robot 1 x in [-1.0, 0.2], Robot 2 x in [-0.2, 1.0]. Regions A, C: Robot 1 only; B: both; bin_gray: Robot 2 only.
