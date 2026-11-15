@@ -1,12 +1,13 @@
-import pytest
+import numpy as np
 
 from conveyor_sort.interfaces import BoxColor
 from conveyor_sort.perception.camera import Camera
 from conveyor_sort.perception.hsv import HsvDetector
 from conveyor_sort.sim.conveyor import ConveyorConfig
 from conveyor_sort.sim.ground_truth import GroundTruthDetector
+from conveyor_sort.sim.scene import HOME_Q
 from conveyor_sort.sim.world import World
-from conveyor_sort.sorting import run_single_robot
+from conveyor_sort.sorting import run_robots, run_single_robot
 
 COLORED = {BoxColor.RED: 1.0, BoxColor.GREEN: 1.0, BoxColor.BLUE: 1.0}
 
@@ -41,3 +42,27 @@ def test_gray_boxes_are_left_on_the_belt_and_dense_traffic_causes_misses():
     assert stats.sorted_correctly == len(stats.events) - stats.failed
     assert all(e.color != BoxColor.GRAY for e in stats.events)
     assert stats.missed > 5                             # one robot cannot keep up
+
+
+def test_two_robots_with_fixed_roles_work_at_the_same_time():
+    config = ConveyorConfig(speed=0.1, spacing=0.6, seed=0)              # a box every 6 s, 1 in 4 gray
+    world = World(config)
+    both_moving, collisions = [0], []
+
+    def check(world):
+        q = world.C.getJointState()
+        both_moving[0] += bool(np.abs(q[:7] - HOME_Q).max() > 0.05 and np.abs(q[7:] - HOME_Q).max() > 0.05)
+        world.C.computeCollisions()
+        collisions.extend(world.C.getCollisions(0.0))
+
+    stats = run_robots(world, GroundTruthDetector(world).detect, duration=60.0, on_step=check)
+    by_robot = {r: [e for e in stats.events if e.robot_id == r] for r in (1, 2)}
+    assert len(by_robot[1]) == 5 and len(by_robot[2]) == 2
+    assert all(e.color != BoxColor.GRAY and e.region != "bin_gray" for e in by_robot[1])
+    assert all(e.color == BoxColor.GRAY and e.region == "bin_gray" for e in by_robot[2])
+    assert stats.sorted_correctly == 7 and stats.failed == 0 and stats.missed == 0
+    assert both_moving[0] * world.dt > 10.0                              # the arms really move simultaneously
+    assert collisions == []
+
+    single = World(config)                                               # same boxes, Robot 1 alone: the gray ones leave the belt
+    assert run_single_robot(single, GroundTruthDetector(single).detect, duration=60.0).missed == 3
