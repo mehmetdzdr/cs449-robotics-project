@@ -1,8 +1,8 @@
 """Clear-and-sort: a gray box right in front of or behind a wanted box blocks Robot 1's fingers, which close
 along the belt. Robot 2 takes the gray box away first (grasping it across the belt), then Robot 1 sorts."""
-from conveyor_sort.coordination.allocation import BLOCK_X, BLOCK_Y, LEAD_TIME, MAX_TRACK_GAP, MIN_TRACK_AGE, REACH_MARGIN
+from conveyor_sort.coordination.allocation import BLOCK_X, BLOCK_Y, LEAD_TIME, MAX_TRACK_GAP, MIN_TRACK_AGE
 from conveyor_sort.interfaces import Assignment, BoxColor, Track
-from conveyor_sort.planning.reach import is_reachable
+from conveyor_sort.planning.reach import can_pick, is_reachable
 from conveyor_sort.sim.regions import DEFAULT_TARGET
 from conveyor_sort.sim.world import World
 
@@ -56,7 +56,7 @@ def plan_clear_and_sort(world: World, tracks: list[Track], first_seen: dict[int,
             if clear_time < world.time + LEAD_TIME:                # too late: the gray box is already further downstream
                 break
             gray_position, wanted_position = gray.predict(clear_time), wanted.predict(pick_time)
-            if (is_reachable(world.C, 1, wanted_position) and is_reachable(world.C, 1, wanted_position + REACH_MARGIN)
+            if (can_pick(world.C, 1, wanted_position)
                     and is_reachable(world.C, 2, gray_position) and is_reachable(world.C, 2, gray_position + ROBOT_2_MARGIN)):
                 return (Assignment(2, gray.track_id, DEFAULT_TARGET[BoxColor.GRAY], clear_time, gray_position),
                         Assignment(1, wanted.track_id, DEFAULT_TARGET[wanted.color], pick_time, wanted_position))

@@ -2,14 +2,13 @@
 from dataclasses import dataclass, field
 
 from conveyor_sort.interfaces import Assignment, BoxColor, Track
-from conveyor_sort.planning.reach import is_reachable
+from conveyor_sort.planning.reach import can_pick
 from conveyor_sort.sim.regions import DEFAULT_TARGET
 from conveyor_sort.sim.world import World
 
 LEAD_TIME = 3.0        # time from the decision to the grasp [s]
 MIN_TRACK_AGE = 1.0    # a track must have been followed this long before it is picked (velocity estimate settled) [s]
 MAX_TRACK_GAP = 0.2    # ... and must have been seen this recently [s]
-REACH_MARGIN = [0.1, 0.0, 0.15]   # safety margin of the pick position: downstream and up (lift height) [m]
 PICK_X = {1: (-1.1, 0.2), 2: (0.4, 1.1)}   # part of the belt (x) where each robot picks [m]; Robot 2 can reach from -0.2, but
 # every box it could pick in the shared area it can also pick later outside of it, without blocking Robot 1
 # The fingers close along the belt: a neighbour closer than BLOCK_X in front of or behind a box, in the same lane
@@ -77,9 +76,7 @@ def allocate(world: World, tracks: list[Track], first_seen: dict[int, float], bl
         if any(other.track_id != track.track_id and abs(other.predict(pick_time)[0] - position[0]) < BLOCK_X
                and abs(other.predict(pick_time)[1] - position[1]) < BLOCK_Y for other in tracks):
             continue
-        # at the edge of the workspace a box can be reached but not lifted: also require a point
-        # further downstream and at lift height to be reachable
-        if is_reachable(world.C, robot_id, position) and is_reachable(world.C, robot_id, position + REACH_MARGIN):
+        if can_pick(world.C, robot_id, position):
             if uses_shared_area(position[0], region):
                 if shared_area_busy:
                     refused.add(robot_id)
