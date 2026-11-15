@@ -37,6 +37,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `perception/camera.py` | `Camera.capture()` returns `Observation` (rgb, depth, GT segmentation, intrinsics, pose) |
 | `perception/localization.py` | `mask_to_world(mask, obs)`: mask + depth to box centre in world frame |
 | `perception/hsv.py` | `HsvDetector(belt).detect(obs)`: HSV thresholds in the belt ROI, blobs, height check |
+| `perception/yolo.py` | `YoloDetector(belt, weights).detect(obs)`: fine-tuned YOLO11n (`weights/yolo_boxes.pt`, not in git); `boxes_to_detections`: bounding boxes + depth to `Detection`s. `scripts/train_yolo.py` trains it |
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
 | `prediction/tracker.py` | `Tracker(predictor="cv" or "kalman").update(detections, time)`: association + constant-velocity window fit or Kalman filter |
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
@@ -58,6 +59,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 - A pick plan can fail where IK says reachable (box just entering a robot's workspace): the sorting loop retries that track 0.5 s later instead of giving up.
 - A region holds one box: the sorting loop removes the previous box before the next one is placed there.
 - Rendering costs about 0.15 s per frame, so vision-in-the-loop runs are slow (36 s of simulation took about 2 min).
+- YOLO: a bounding box can contain part of an arm above the box; `boxes_to_detections` localizes from the pixels at box-top height only. The model test is skipped when the weights file is missing (CI). Python 3.14 starts data-loader workers by re-importing the script: training code needs `if __name__ == "__main__"`.
 - HSV detector: gray blobs on the robot arms are rejected by a height check from depth; touching boxes of the same color merge into one blob (not handled).
 - `World.step()` spawns a box on the very first step even with a huge `spacing`.
 - Belt: along +x, x in [-1.1, 1.1], centre y = 0.2, surface z = 0.62. Boxes: 6 cm cubes, kinematic motion (no physics).
