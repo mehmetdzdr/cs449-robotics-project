@@ -16,7 +16,7 @@ jobs:
       - name: System libraries for RAI rendering
         run: sudo apt-get update && sudo apt-get install -y xvfb libglu1-mesa libgl1 liblapack3 libfreetype6 libxrandr2 libxxf86vm1 libxi6
       - name: Install package
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,eval]"
       - name: Environment check
         run: xvfb-run -a python scripts/check_env.py
       - name: Tests

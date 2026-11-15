@@ -14,6 +14,7 @@ python scripts/run_sorting.py --view          # Robot 1 sorts colored boxes (--r
 python scripts/run_command.py "pick a blue box and place it at B" --view   # command mode (no command: type them in)
 python scripts/generate_dataset.py --n 2000 --out data/boxes [--preview]
 python evaluation/run_experiment.py evaluation/configs/example.json   # one run from a JSON config, metrics appended to results/runs.csv
+python evaluation/make_figures.py             # figures and tables of the report from results/*.csv (run the benchmark_*.py scripts first)
 ```
 
 Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that renders must run under `xvfb-run -a`.
@@ -44,7 +45,8 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `perception/benchmark.py` | `make_scenes(n, seed, arrangement, brightness)`, `evaluate(scenes, detect, masks)`: recall, wrong color, precision, position error, mask IoU, time; `evaluation/benchmark_perception.py` compares HSV / YOLO / SAM and writes `results/perception.csv` |
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
 | `prediction/tracker.py` | `Tracker(predictor="cv" or "kalman").update(detections, time)`: association + constant-velocity window fit or Kalman filter |
-| `prediction/benchmark.py` | `prediction_errors(predictor, noise, horizons, frames)`: future-position errors on a synthetic box; `evaluation/benchmark_prediction.py` writes `results/prediction.csv` and `evaluation/figures/prediction_error.png` (needs `.[eval]`) |
+| `prediction/benchmark.py` | `prediction_errors(predictor, noise, horizons, frames)`: future-position errors on a synthetic box; `evaluation/benchmark_prediction.py` writes `results/prediction.csv` |
+| `evaluation/make_figures.py` | reads `results/*.csv` (manipulation, perception, prediction, command, command_fast), writes `evaluation/figures/*.png` and `tables.md` (committed); needs `.[eval]` |
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
 | `command/parser.py` | `parse_command(text)`: text to `Command` (color + region), `ValueError` with a user message if invalid |
 | `command/selection.py` | `select(world, command, tracks, first_seen, robots, blocked)`: `Assignment` for the box of the commanded color closest to a robot that reaches the target region (`regions.REGION_ROBOTS`), or None |
