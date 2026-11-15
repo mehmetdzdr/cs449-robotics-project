@@ -41,6 +41,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `perception/yolo.py` | `YoloDetector(belt, weights).detect(obs)`: fine-tuned YOLO11n (`weights/yolo_boxes.pt`, not in git); `boxes_to_detections`: bounding boxes + depth to `Detection`s. `scripts/train_yolo.py` trains it |
 | `perception/dataset.py` | Synthetic YOLO dataset, labels from GT segmentation |
 | `prediction/tracker.py` | `Tracker(predictor="cv" or "kalman").update(detections, time)`: association + constant-velocity window fit or Kalman filter |
+| `prediction/benchmark.py` | `prediction_errors(predictor, noise, horizons, frames)`: future-position errors on a synthetic box; `evaluation/benchmark_prediction.py` writes `results/prediction.csv` and `evaluation/figures/prediction_error.png` (needs `.[eval]`) |
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
 | `command/parser.py` | `parse_command(text)`: text to `Command` (color + region), `ValueError` with a user message if invalid |
 | `command/selection.py` | `select(world, command, tracks, first_seen, robots, blocked)`: `Assignment` for the box of the commanded color closest to a robot that reaches the target region (`regions.REGION_ROBOTS`), or None |

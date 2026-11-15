@@ -17,6 +17,7 @@ learning = [
     "ultralytics",      # YOLO
     "segment-anything", # SAM
 ]
+eval = ["matplotlib"]     # benchmark plots
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]
