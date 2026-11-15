@@ -11,6 +11,7 @@ python scripts/check_env.py                  # must print ENVIRONMENT OK
 pytest -q                                    # headless Linux: xvfb-run -a pytest -q
 python scripts/run_conveyor.py --view        # conveyor only (or --video out.mp4 headless)
 python scripts/run_sorting.py --view          # Robot 1 sorts colored boxes (--robots 2: Robot 2 removes gray; --detector gt|hsv, --video out.mp4)
+python scripts/run_command.py "pick a blue box and place it at B" --view   # command mode (no command: type them in)
 python scripts/generate_dataset.py --n 2000 --out data/boxes [--preview]
 python evaluation/run_experiment.py evaluation/configs/example.json   # one run from a JSON config, metrics appended to results/runs.csv
 ```
@@ -43,6 +44,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `planning/reach.py`, `planning/pick.py` | `is_reachable`, `plan_pick` (KOMO reach to a stationary box), `plan_moving_pick` (moving box, from a `Track`), `plan_lift`, `plan_place`, `plan_home` |
 | `command/parser.py` | `parse_command(text)`: text to `Command` (color + region), `ValueError` with a user message if invalid |
 | `command/selection.py` | `select(world, command, tracks, first_seen, robots, blocked)`: `Assignment` for the box of the commanded color closest to a robot that reaches the target region (`regions.REGION_ROBOTS`), or None |
+| `command/mode.py` | `CommandMode(world, detect).execute(command or text, timeout)`: waits for a feasible box, picks and places it, returns `CommandResult`; several commands in a row on the running belt |
 | `planning/execute.py` | `execute_path(world, path, duration)`, `follow_path` (generator, one robot's joints only), `grasp(world, robot_id, box=None)` (returns box name or None), `release(world, box, region)` (kinematic) |
 | `metrics.py` | `ExperimentConfig` / `load_config(json)`, `run_experiment(config)` returns one flat record (config + metrics), `summarize(stats, boxes, duration)`, `append_csv` |
 | `coordination/allocation.py` | `allocate(world, tracks, first_seen, blocked, roles, free_robots, busy_regions, shared_area_busy, log)`: at most one `Assignment` per free robot, most urgent (robot, box) pair first, one robot at a time in the shared area (`uses_shared_area`, `CoordinationLog`); `FIXED_ROLES`, `SHARED_ROLES` (both robots sort green), `PICK_X`, `LEAD_TIME` |
