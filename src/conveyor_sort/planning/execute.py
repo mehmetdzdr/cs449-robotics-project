@@ -1,5 +1,5 @@
 """Execute planned joint paths in the simulation world; kinematic grasp (box is attached to the gripper)."""
-from typing import Callable
+from typing import Callable, Iterator
 
 import numpy as np
 
@@ -7,15 +7,25 @@ from conveyor_sort.sim.scene import ROBOT_PREFIX
 from conveyor_sort.sim.world import World
 
 
-def execute_path(world: World, path: np.ndarray, duration: float,
-                 on_step: Callable[[World], None] | None = None) -> None:
-    """Move the arms along `path` in `duration` seconds while the world (conveyor, clock) keeps running."""
-    waypoints = np.vstack([world.C.getJointState(), path])   # start from the current joint state
+def follow_path(world: World, path: np.ndarray, duration: float, robot_id: int | None = None) -> Iterator[None]:
+    """Generator form of `execute_path`: sets the joints for one simulation step, then yields for the caller to
+    step the world. With `robot_id` only that robot's joints are moved, so both arms can follow their own paths."""
+    joints = slice((robot_id - 1) * 7, robot_id * 7) if robot_id else slice(None)
+    waypoints = np.vstack([world.C.getJointState(), path])[:, joints]   # start from the current joint state
     n_steps = max(1, round(duration / world.dt))
     for k in range(1, n_steps + 1):
         s = k / n_steps * (len(waypoints) - 1)               # linear interpolation between waypoints
         i = min(int(s), len(waypoints) - 2)
-        world.C.setJointState(waypoints[i] + (s - i) * (waypoints[i + 1] - waypoints[i]))
+        q = world.C.getJointState()
+        q[joints] = waypoints[i] + (s - i) * (waypoints[i + 1] - waypoints[i])
+        world.C.setJointState(q)
+        yield
+
+
+def execute_path(world: World, path: np.ndarray, duration: float,
+                 on_step: Callable[[World], None] | None = None) -> None:
+    """Move the arms along `path` in `duration` seconds while the world (conveyor, clock) keeps running."""
+    for _ in follow_path(world, path, duration):
         world.step()
         if on_step:
             on_step(world)
