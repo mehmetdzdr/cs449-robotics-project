@@ -25,8 +25,9 @@ class PickPlaceTask:
     Call `advance()` once before every `world.step()`: it moves this robot's arm (only its own joints) by one
     simulation step and returns False once the task has ended; `result` is final then. The box is grasped at
     `assignment.pick_time` where `track` predicts it. Each stage is planned from the state the previous one ended
-    in, with the other arm treated as static at its current pose. On failure the arm stops where it is (after a
-    failed grasp it goes home).
+    in, with the other arm treated as static at its current pose. A pick is only started if the lift from its
+    grasp pose can be planned too (else: failed stage "pick", the arm has not moved). On a later failure the arm
+    stops where it is (after a failed grasp it goes home).
     """
 
     def __init__(self, world: World, assignment: Assignment, track: Track, across_belt: bool = False):
@@ -50,9 +51,14 @@ class PickPlaceTask:
                 yield True
             return True
 
-        if not (yield from run("pick", plan_moving_pick(C, robot, track, world.time, assignment.pick_time,
-                                                        across_belt=self.across_belt),
-                               assignment.pick_time - world.time)):
+        pick = plan_moving_pick(C, robot, track, world.time, assignment.pick_time, across_belt=self.across_belt)
+        if pick.feasible:      # from some grasp poses the arm cannot lift and would be left holding the box:
+            q = C.getJointState()                    # check the lift from the pose the pick ends in, before moving
+            C.setJointState(pick.path[-1])
+            lift = plan_lift(C, robot)
+            C.setJointState(q)
+            pick = Plan(pick.path, lift.feasible, pick.planning_time + lift.planning_time)
+        if not (yield from run("pick", pick, assignment.pick_time - world.time)):
             return
         result.box = grasp(world, robot)
         if result.box is None:

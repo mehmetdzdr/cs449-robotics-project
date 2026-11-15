@@ -1,9 +1,9 @@
 """Command mode: choose the box and the robot that carry out a user `Command`."""
 import numpy as np
 
-from conveyor_sort.coordination.allocation import LEAD_TIME, MAX_TRACK_GAP, MIN_TRACK_AGE, PICK_X, REACH_MARGIN
+from conveyor_sort.coordination.allocation import LEAD_TIME, MAX_TRACK_GAP, MIN_TRACK_AGE, PICK_X
 from conveyor_sort.interfaces import Assignment, Command, Track
-from conveyor_sort.planning.reach import is_reachable
+from conveyor_sort.planning.reach import can_pick
 from conveyor_sort.sim.regions import REGION_ROBOTS
 from conveyor_sort.sim.scene import ROBOT_PREFIX
 from conveyor_sort.sim.world import World
@@ -16,7 +16,7 @@ def select(world: World, command: Command, tracks: list[Track], first_seen: dict
     """The (box, robot) pair that carries out the command, or None if there is no feasible box (yet).
 
     The robot must be able to reach the target region; the box must have the commanded color, be tracked
-    reliably, be reachable at the pick time (`LEAD_TIME` from now) and have at least `MIN_TIME_LEFT` in the
+    reliably, be pickable (`can_pick`) at the pick time (`LEAD_TIME` from now) and have at least `MIN_TIME_LEFT` in the
     robot's part of the belt after that. Of all such pairs the one with the box closest to the robot's base
     is chosen: the easiest reach. `blocked` maps track ids to the time before which they must not be chosen.
     """
@@ -36,6 +36,6 @@ def select(world: World, command: Command, tracks: list[Track], first_seen: dict
                 candidates.append((float(np.linalg.norm(position[:2] - base[:2])), robot_id, track, position))
 
     for _, robot_id, track, position in sorted(candidates, key=lambda candidate: candidate[0]):
-        if is_reachable(world.C, robot_id, position) and is_reachable(world.C, robot_id, position + REACH_MARGIN):
+        if can_pick(world.C, robot_id, position):
             return Assignment(robot_id, track.track_id, command.target_region, pick_time, position)
     return None

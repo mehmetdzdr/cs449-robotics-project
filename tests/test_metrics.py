@@ -65,3 +65,37 @@ def test_unknown_config_key_or_detector_is_an_error(tmp_path):
         load_config(tmp_path / "config.json")
     with pytest.raises(ValueError, match="unknown detector"):
         run_experiment(ExperimentConfig(detector="yolo9000"))
+
+
+def test_blocked_pairs_in_the_box_stream():
+    world = World(ConveyorConfig(speed=0.5, spacing=0.4, blocked_pairs=1.0, max_boxes=6, seed=3))
+    world.run(4.0)
+    names = sorted(world.conveyor.on_belt(), key=lambda n: -world.C.getFrame(n).getPosition()[0])   # first box first
+    assert world.conveyor.pairs == 3 and len(names) == 6
+    for gray, colored in zip(names[::2], names[1::2]):
+        assert world.conveyor.colors[gray] == BoxColor.GRAY and world.conveyor.colors[colored] != BoxColor.GRAY
+        offset = world.C.getFrame(gray).getPosition() - world.C.getFrame(colored).getPosition()
+        assert offset == pytest.approx([0.08, 0, 0], abs=0.03)             # gray right in front, same lane
+
+
+def test_three_manipulation_configurations_on_the_same_stream():
+    records = {mode: run_experiment(ExperimentConfig("modes", 0.1, 0.45, 10, seed=0, mode=mode))
+               for mode in ("single", "fixed", "coordinated")}
+    assert records["single"]["sorted_correctly"] == 5 and records["single"]["missed"] == 5      # the gray boxes leave
+    assert records["fixed"]["sorted_correctly"] == 8 and records["fixed"]["missed"] == 2
+    assert records["coordinated"]["sorted_correctly"] >= 8
+    for record in records.values():
+        assert record["grasp_success_rate"] == 1.0 and record["sorting_accuracy"] == 1.0
+        assert record["sorted_fraction"] == record["sorted_correctly"] / 10
+        assert record["conflicts"] >= 0 and record["waiting_time"] >= 0.0
+        assert record["clear_and_sort_attempts"] == 0 and math.isnan(record["clear_and_sort_success_rate"])
+    with pytest.raises(ValueError, match="unknown mode"):
+        run_experiment(ExperimentConfig(mode="swarm"))
+
+
+def test_clear_and_sort_is_logged_for_a_stream_with_blocked_pairs():
+    record = run_experiment(ExperimentConfig("pairs", 0.05, 0.6, 10, seed=0, mode="coordinated", blocked_pairs=0.5))
+    assert record["blocked_pairs_spawned"] == 3
+    assert record["clear_and_sort_attempts"] == 1 and record["clear_and_sort_success_rate"] == 1.0
+    fixed = run_experiment(ExperimentConfig("pairs", 0.05, 0.6, 10, seed=0, mode="fixed", blocked_pairs=0.5))
+    assert fixed["clear_and_sort_attempts"] == 0 and fixed["sorted_correctly"] < record["sorted_correctly"]
