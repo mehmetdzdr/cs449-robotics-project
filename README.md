@@ -45,8 +45,8 @@ pip install -e ".[learning]"       # optional: YOLO, SAM
 python scripts/check_env.py        # must end with ENVIRONMENT OK
 python scripts/view_scene.py       # opens the scene in the RAI viewer
 python scripts/run_conveyor.py --view   # boxes moving on the belt, no robots
+python scripts/run_autonomous.py --view   # autonomous mode: two coordinated robots sort the boxes
 python scripts/run_command.py "pick a blue box and place it at B" --view   # command mode
-python scripts/run_sorting.py --view    # Robot 1 sorts colored boxes (--detector gt|hsv|yolo|sam|sam_b, --robots 2 adds Robot 2 for gray boxes)
 pytest
 ```
 
@@ -60,6 +60,20 @@ Requires Python 3.10 or newer.
 | `ImportError: liblapack.so.3` or another missing `.so` (minimal Linux installs) | `sudo apt install liblapack3 libgl1 libfreetype6 libxrandr2 libxxf86vm1 libxi6` |
 | `GLFW error ... DISPLAY environment variable is missing` (headless Linux, SSH, CI) | `sudo apt install xvfb`, then prefix commands with `xvfb-run -a`, e.g. `xvfb-run -a pytest` |
 | `FreeType Error: Failed to load font` warning | Harmless; only text overlays in the viewer are disabled |
+
+## Demos
+
+Both entry points take `--speed`, `--spacing`, `--seed`, `--detector gt|hsv|yolo|sam|sam_b`, `--view` (RAI viewer)
+and `--video out.mp4` (top-camera video; headless Linux: prefix with `xvfb-run -a`).
+
+```bash
+python scripts/run_autonomous.py --view                          # two coordinated robots
+python scripts/run_autonomous.py --mode single --view            # Robot 1 alone: gray boxes leave the belt
+python scripts/run_autonomous.py --mode fixed --speed 0.15 --view   # Robot 2 removes gray boxes
+python scripts/run_autonomous.py --scene clear-and-sort --view   # a gray box blocks a red one: Robot 2 clears it first
+python scripts/run_command.py "pick a blue box and place it at B" "put a gray box into the bin" --view
+python scripts/run_command.py --view                             # type commands, empty line to quit
+```
 
 ## Experiments
 
