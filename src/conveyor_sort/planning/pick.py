@@ -17,15 +17,27 @@ class Plan:
     planning_time: float    # [s]
 
 
-FINGER_JOINTS = [f"{prefix}panda_finger_joint1" for prefix in ROBOT_PREFIX.values()]
+ARM_JOINT_NAMES = [f"{prefix}panda_joint{i}" for prefix in ROBOT_PREFIX.values() for i in range(1, 8)]
+_FINGER_STATE: dict[int, tuple[np.ndarray, list[int]]] = {}   # id(komo) -> (full q, arm indices in it), see _komo
 
 
 def _komo(C: ry.Config, steps: int) -> ry.KOMO:
-    """KOMO over the active joints. With active finger joints (physics backend, q has 16 entries) the fingers
-    keep their value: they are not the planner's to move (see physics.arms)."""
-    komo = ry.KOMO(C, 1, steps, 2, True)
-    if len(C.getJointState()) > 14:
-        komo.addObjective([], ry.FS.qItself, FINGER_JOINTS, ry.OT.eq, [1e1], [], 1)
+    """KOMO over the arm joints only. With active finger joints (physics backend, q has 16 entries) the fingers
+    are not decision variables but keep their current value (they are not the planner's to move, see
+    physics.arms); `_solve` puts them back into the path. An equality constraint on them instead let the solver
+    trade finger motion against the other terms and made some lifts infeasible (in about 1 of 10 trials)."""
+    q = C.getJointState()
+    if len(q) <= 14:
+        return ry.KOMO(C, 1, steps, 2, True)
+    from conveyor_sort.physics.friction_grasp import activate_fingers
+    arms = arm_joints(C, 1) + arm_joints(C, 2)
+    C.selectJoints(ARM_JOINT_NAMES)
+    try:
+        komo = ry.KOMO(C, 1, steps, 2, True)
+    finally:
+        activate_fingers(C)
+        C.setJointState(q)
+    _FINGER_STATE[id(komo)] = q, arms
     return komo
 
 
@@ -69,7 +81,13 @@ def plan_lift(C: ry.Config, robot_id: int, height: float = 0.15, steps: int = 10
 def _solve(komo: ry.KOMO) -> Plan:
     start = time.perf_counter()
     result = ry.NLP_Solver(komo.nlp(), verbose=0).solve()
-    return Plan(komo.getPath(), bool(result.feasible), time.perf_counter() - start)
+    path = komo.getPath()
+    if id(komo) in _FINGER_STATE:          # arm joints only (see _komo): re-insert the fixed finger values
+        full_q, arms = _FINGER_STATE.pop(id(komo))
+        full = np.tile(full_q, (len(path), 1))
+        full[:, arms] = path
+        path = full
+    return Plan(path, bool(result.feasible), time.perf_counter() - start)
 
 
 def plan_place(C: ry.Config, robot_id: int, box: str, region: str, steps: int = 20) -> Plan:
