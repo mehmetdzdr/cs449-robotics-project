@@ -3,11 +3,11 @@ import numpy as np
 import pytest
 
 from conveyor_sort.interfaces import BoxColor
-from conveyor_sort.physics.arms import ARM_JOINTS
+from conveyor_sort.physics.arms import LATENCY
 from conveyor_sort.planning.execute import execute_path, follow_path
 from conveyor_sort.planning.pick import plan_pick
 from conveyor_sort.sim.conveyor import ConveyorConfig
-from conveyor_sort.sim.scene import ROBOT_PREFIX
+from conveyor_sort.sim.scene import ROBOT_PREFIX, arm_joints
 from conveyor_sort.sim.world import World
 
 
@@ -94,8 +94,8 @@ def robot1_tracking_error(world, box1, box2, disturb: bool) -> float:
         if arm2 is not None:
             next(arm2, None)
         world.step()
-        reference = world.arms.reference(1, world.time + world._t0)
-        errors.append(np.abs(world.C.getJointState()[ARM_JOINTS[1]] - reference).max())
+        reference = world.arms.reference(1, world.time + world._t0 - LATENCY)    # the arm follows it LATENCY late
+        errors.append(np.abs(world.C.getJointState()[arm_joints(world.C, 1)] - reference).max())
     return float(max(errors))
 
 
@@ -105,6 +105,6 @@ def test_new_path_for_one_arm_does_not_disturb_the_other(physics_world):
     world2, (box1, box2) = physics_world([(-0.5, 0.0), (0.6, 0.0)])
     disturbed = robot1_tracking_error(world2, box1, box2, disturb=True)
     print(f"robot 1 tracking error {alone * 1000:.1f} mrad alone, {disturbed * 1000:.1f} mrad while robot 2 is re-planned")
-    # measured: 82 to 85 mrad alone, 82 to 98 mrad disturbed. Most of it is BotOp's control latency (the arm
-    # follows its spline 0.1 s late), which #91 compensates; this only guards against a large disturbance
-    assert alone < 0.12 and disturbed < 0.12
+    # measured: 8 to 18 mrad alone, 28 mrad disturbed (a transient when the merged spline overwrites the old one;
+    # known limitation, see physics/arms.py); this guards against it getting worse
+    assert alone < 0.025 and disturbed < 0.04

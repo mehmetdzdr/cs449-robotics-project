@@ -14,6 +14,15 @@ TOP_CAMERA = "cameraTop"
 HOME_Q = np.array([0.0, -1.2, 0.0, -2.7, 0.0, 1.6, -0.5])
 
 
+def arm_joints(C: ry.Config, robot_id: int) -> list[int]:
+    """Indices of a robot's 7 arm joints in q: 0..6 and 7..13, but 0..6 and 8..14 when the finger joints are
+    active (each finger comes right after its own arm in q, see physics.friction_grasp.activate_fingers)."""
+    names = [n for n in C.getJointNames() if not n.endswith("panda_finger_joint2")]   # mimic joints are not in q
+    if len(names) != len(C.getJointState()):
+        names = [n for n in names if "finger" not in n]
+    return [i for i, n in enumerate(names) if n.startswith(ROBOT_PREFIX[robot_id]) and "finger" not in n]
+
+
 def load_scene() -> ry.Config:
     C = ry.Config()
     C.addFile(ry.raiPath("scenarios/pandasTable.g"))

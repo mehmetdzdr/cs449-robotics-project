@@ -7,14 +7,38 @@ import robotic as ry
 
 from conveyor_sort.interfaces import Track
 from conveyor_sort.sim.conveyor import BOX_SIZE
-from conveyor_sort.sim.scene import HOME_Q, ROBOT_PREFIX
+from conveyor_sort.sim.scene import HOME_Q, ROBOT_PREFIX, arm_joints
 
 
 @dataclass
 class Plan:
-    path: np.ndarray        # (steps, 14) joint waypoints for both arms, from the current state to the goal
+    path: np.ndarray        # (steps, 14 or 16) joint waypoints for both arms, from the current state to the goal
     feasible: bool          # all constraints satisfied (reach, joint limits, no collisions)
     planning_time: float    # [s]
+
+
+ARM_JOINT_NAMES = [f"{prefix}panda_joint{i}" for prefix in ROBOT_PREFIX.values() for i in range(1, 8)]
+_FINGER_STATE: dict[int, tuple[np.ndarray, list[int]]] = {}   # id(komo) -> (full q, arm indices in it), see _komo
+
+
+def _komo(C: ry.Config, steps: int) -> ry.KOMO:
+    """KOMO over the arm joints only. With active finger joints (physics backend, q has 16 entries) the fingers
+    are not decision variables but keep their current value (they are not the planner's to move, see
+    physics.arms); `_solve` puts them back into the path. An equality constraint on them instead let the solver
+    trade finger motion against the other terms and made some lifts infeasible (in about 1 of 10 trials)."""
+    q = C.getJointState()
+    if len(q) <= 14:
+        return ry.KOMO(C, 1, steps, 2, True)
+    from conveyor_sort.physics.friction_grasp import activate_fingers
+    arms = arm_joints(C, 1) + arm_joints(C, 2)
+    C.selectJoints(ARM_JOINT_NAMES)
+    try:
+        komo = ry.KOMO(C, 1, steps, 2, True)
+    finally:
+        activate_fingers(C)
+        C.setJointState(q)
+    _FINGER_STATE[id(komo)] = q, arms
+    return komo
 
 
 def plan_pick(C: ry.Config, robot_id: int, box: str, steps: int = 20) -> Plan:
@@ -25,7 +49,7 @@ def plan_pick(C: ry.Config, robot_id: int, box: str, steps: int = 20) -> Plan:
     vertically, so the fingers do not sweep through the box or its neighbours.
     """
     gripper = f"{ROBOT_PREFIX[robot_id]}gripper"
-    komo = ry.KOMO(C, 1, steps, 2, True)
+    komo = _komo(C, steps)
     komo.addControlObjective([], 2, 1e0)                                        # smooth: small accelerations
     komo.addControlObjective([], 0, 1e-2)                                       # stay near the start pose
     komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
@@ -42,7 +66,7 @@ def plan_lift(C: ry.Config, robot_id: int, height: float = 0.15, steps: int = 10
     """Plan a straight vertical lift of the gripper (and a box attached to it) by `height`."""
     gripper = f"{ROBOT_PREFIX[robot_id]}gripper"
     target = C.getFrame(gripper).getPosition() + [0, 0, height]
-    komo = ry.KOMO(C, 1, steps, 2, True)
+    komo = _komo(C, steps)
     komo.addControlObjective([], 2, 1e0)
     komo.addControlObjective([], 0, 1e-2)
     komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
@@ -57,14 +81,20 @@ def plan_lift(C: ry.Config, robot_id: int, height: float = 0.15, steps: int = 10
 def _solve(komo: ry.KOMO) -> Plan:
     start = time.perf_counter()
     result = ry.NLP_Solver(komo.nlp(), verbose=0).solve()
-    return Plan(komo.getPath(), bool(result.feasible), time.perf_counter() - start)
+    path = komo.getPath()
+    if id(komo) in _FINGER_STATE:          # arm joints only (see _komo): re-insert the fixed finger values
+        full_q, arms = _FINGER_STATE.pop(id(komo))
+        full = np.tile(full_q, (len(path), 1))
+        full[:, arms] = path
+        path = full
+    return Plan(path, bool(result.feasible), time.perf_counter() - start)
 
 
 def plan_place(C: ry.Config, robot_id: int, box: str, region: str, steps: int = 20) -> Plan:
     """Plan carrying the grasped box to the centre of `region` and setting it down (vertical descent at the end)."""
     gripper = f"{ROBOT_PREFIX[robot_id]}gripper"
     resting = [0, 0, C.getFrame(region).getSize()[2] / 2 + BOX_SIZE / 2 + 0.001]   # box centre in the region frame
-    komo = ry.KOMO(C, 1, steps, 2, True)
+    komo = _komo(C, steps)
     komo.addControlObjective([], 2, 1e0)
     komo.addControlObjective([], 0, 1e-2)
     komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
@@ -78,13 +108,14 @@ def plan_place(C: ry.Config, robot_id: int, box: str, region: str, steps: int = 
 
 def plan_home(C: ry.Config, robot_id: int, steps: int = 20) -> Plan:
     """Plan the robot's return to its retracted home pose; the other arm keeps its current pose."""
-    target = C.getJointState()
-    target[(robot_id - 1) * 7: robot_id * 7] = HOME_Q
-    komo = ry.KOMO(C, 1, steps, 2, True)
+    q = C.getJointState()
+    komo = _komo(C, steps)
     komo.addControlObjective([], 2, 1e0)
     komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
     komo.addObjective([], ry.FS.jointLimits, [], ry.OT.ineq)
-    komo.addObjective([1.0], ry.FS.qItself, [], ry.OT.eq, [1e1], target)
+    for r, prefix in ROBOT_PREFIX.items():      # by joint name: with active fingers q has 16 entries (KOMO's 18)
+        target = HOME_Q if r == robot_id else q[arm_joints(C, r)]
+        komo.addObjective([1.0], ry.FS.qItself, [f"{prefix}panda_joint{i}" for i in range(1, 8)], ry.OT.eq, [1e1], target)
     komo.addObjective([1.0], ry.FS.qItself, [], ry.OT.eq, [1e1], [], 1)
     return _solve(komo)
 
@@ -104,7 +135,7 @@ def plan_moving_pick(C: ry.Config, robot_id: int, track: Track, now: float, pick
     gripper = f"{ROBOT_PREFIX[robot_id]}gripper"
     target = C.addFrame("_pick_target").setPosition(track.predict(pick_time))   # world-aligned, like the boxes
     try:
-        komo = ry.KOMO(C, 1, steps, 2, True)
+        komo = _komo(C, steps)
         komo.addControlObjective([], 2, 1e0)
         komo.addControlObjective([], 0, 1e-2)
         komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
