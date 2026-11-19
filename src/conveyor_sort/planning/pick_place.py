@@ -2,25 +2,31 @@
 from dataclasses import dataclass
 from typing import Callable, Iterator
 
+import numpy as np
+
 from conveyor_sort.interfaces import Assignment, Track
 from conveyor_sort.physics.friction_grasp import FINGER_OPEN, FINGER_SQUEEZE
 from conveyor_sort.physics.grasping import (SLIP_TOLERANCE, SQUEEZE_SETTLE, SQUEEZE_TIME, box_at_gripper, holding,
                                             planning_view)
 from conveyor_sort.planning.execute import follow_path, grasp, release
 from conveyor_sort.planning.pick import Plan, plan_home, plan_lift, plan_moving_pick, plan_place
+from conveyor_sort.sim.regions import region_contains
 from conveyor_sort.sim.scene import ROBOT_PREFIX
 from conveyor_sort.sim.world import World
 
 # durations of the stages after the grasp [s]
 LIFT_TIME, PLACE_TIME, RETREAT_TIME, HOME_TIME = 1.0, 3.0, 1.0, 2.0
+MAX_TILT = 10.0   # physics backend: a placed box must be upright within this [deg]
 
 
 @dataclass
 class PickPlaceResult:
     success: bool
     planning_time: float            # summed KOMO solve time of all stages [s]
-    failed_stage: str | None        # "pick", "grasp", "slip", "lift", "place", "retreat", "home", or None on success
+    failed_stage: str | None        # "pick", "grasp", "slip", "lift", "place", "release", "retreat", "home", or None
     box: str | None                 # frame name of the grasped box
+    place_error: float | None = None   # physics backend: placed box centre to region centre in xy [m]
+    tilt: float | None = None          # physics backend: placed box's tilt from upright [deg]
 
 
 class PickPlaceTask:
@@ -36,16 +42,19 @@ class PickPlaceTask:
     Physics backend (`World(physics=True)`): the grasp is physical. At pick time the belt stops driving the box
     under the gripper, the fingers squeeze it and the box is held by friction only. Failed stage "grasp": the
     fingers closed on nothing (then they open and the arm goes home); "slip": the box did not rise with the
-    gripper during the lift. Physical place and release follow in #92: until then only `pick_only=True` (pick and
-    lift; success = the box is held after the lift) is available there.
+    gripper during the lift. The place is physical too: the box is lowered to its resting height in the region
+    (`drop` higher, if given), the fingers open and the box is on its own while the arm retreats and goes home.
+    `result.place_error` (box centre to region centre in xy) and `result.tilt` are measured at the end; failed
+    stage "release": the box is not upright (tilt >= MAX_TILT) or not inside the region. `pick_only=True` ends
+    after the lift (success = the box is held).
     """
 
     def __init__(self, world: World, assignment: Assignment, track: Track, across_belt: bool = False,
-                 pick_only: bool = False):
-        if world.bot is not None and not pick_only:
-            raise NotImplementedError("physical place and release: #92; use pick_only=True on the physics backend")
+                 pick_only: bool = False, drop: float = 0.0):
         self.assignment = assignment
         self.across_belt = across_belt     # grasp on the box faces at -y / +y (see plan_moving_pick)
+        self.pick_only = pick_only         # physics backend: end after the lift (success = the box is held)
+        self.drop = drop                   # physics backend: release the box this much higher than resting [m]
         self.result = PickPlaceResult(False, 0.0, None, None)
         self._steps = self._run_physical(world, assignment, track) if world.bot is not None else \
             self._run(world, assignment, track)
@@ -138,9 +147,29 @@ class PickPlaceTask:
             result.failed_stage = "slip"
             world.conveyor.unhold(box)
             return
-        result.success = holding(world, robot)
-        if not result.success:
+        if not holding(world, robot):
             result.failed_stage = "slip"
+            return
+        if self.pick_only:
+            result.success = True
+            return
+        region = assignment.target_region
+        with planning_view(world, robot, box):
+            place = plan_place(C, robot, box, region, clearance=self.drop)
+        if not (yield from run("place", place, PLACE_TIME)):
+            return
+        world.arms.set_fingers(robot, FINGER_OPEN, SQUEEZE_TIME)       # release: the box is on its own now
+        world.conveyor.unhold(box)
+        yield from wait(SQUEEZE_TIME + SQUEEZE_SETTLE)
+        if not ((yield from run("retreat", plan_lift(C, robot, height=0.1), RETREAT_TIME))
+                and (yield from run("home", plan_home(C, robot), HOME_TIME))):
+            return
+        frame = C.getFrame(box)
+        result.place_error = float(np.linalg.norm(frame.getPosition()[:2] - C.getFrame(region).getPosition()[:2]))
+        result.tilt = float(np.degrees(np.arccos(np.clip(frame.getRotationMatrix()[2, 2], -1.0, 1.0))))
+        result.success = region_contains(C, region, frame.getPosition()) and result.tilt < MAX_TILT
+        if not result.success:
+            result.failed_stage = "release"
 
 
 def pick_and_place(world: World, assignment: Assignment, track: Track,
