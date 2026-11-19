@@ -17,9 +17,11 @@ from conveyor_sort.physics.botop import start_simulation
 from conveyor_sort.sim.scene import ROBOT_PREFIX
 
 FINGER_OPEN = 0.04      # finger joint at full opening (8 cm between the fingers) [m]
-FINGER_SQUEEZE = 0.015  # finger reference while holding a 6 cm box: the fingers touch it at 0.030 and settle near 0.0255
-HOLDING_MIN = 0.022     # finger position above this after squeezing: something is between the fingers
-                        # (measured: 0.0255 holding a 6 cm box, 0.018 closing on nothing; the PD settles short of 0.015)
+FINGER_SQUEEZE = 0.022  # finger reference while holding a 6 cm box: the fingers touch it at 0.030 and settle near 0.0237
+HOLDING_MIN = 0.023     # finger position above this after squeezing: something is between the fingers
+                        # (measured with the drive gains of physics.botop: 0.0237 to 0.0239 holding a 6 cm box of
+                        # 0.05 to 1 kg, 0.0222 closing on nothing. With RAI's default, softer gains the reference was
+                        # 0.015 and the fingers settled at 0.0255 / 0.018; the stiffer gains push them deeper.)
 FRICTION = 1.0          # PhysX friction coefficient (fingers, box, table)
 SQUEEZE_SETTLE = 0.5    # wait after the squeeze command [s]
 
