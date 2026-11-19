@@ -15,10 +15,16 @@ def check_robotic_version() -> None:
                            f"{'.'.join(map(str, MIN_ROBOTIC))}: pip install -U 'robotic>=0.4.3'")
 
 
-def start_simulation(C: ry.Config) -> ry.BotOp:
-    """Start BotOp in simulation mode (physics engine) for the robots in C; no viewer window."""
+def start_simulation(C: ry.Config, hyper_speed: float = 1.0) -> ry.BotOp:
+    """Start BotOp in simulation mode (physics engine) for the robots in C; no viewer window.
+
+    `hyper_speed`: simulation time per wall-clock time (`botsim/hyperSpeed`); the simulation runs freely in its
+    own thread at this rate. Measured real-time factors are in tests/test_world.py.
+    """
     check_robotic_version()
-    ry.params_add({"botsim/verbose": 0, "physx/verbose": 0})
+    # always a float: params_add does not overwrite a parameter with a value of another type (an int 5 after
+    # the float 1.0 was silently ignored)
+    ry.params_add({"botsim/verbose": 0, "physx/verbose": 0, "botsim/hyperSpeed": float(hyper_speed)})
     return ry.BotOp(C, useRealRobot=False)
 
 

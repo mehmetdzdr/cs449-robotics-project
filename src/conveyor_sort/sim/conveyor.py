@@ -121,21 +121,24 @@ class Conveyor:
             else:
                 frame.setRelativePosition(frame.getRelativePosition() + [advance, 0, 0])
 
+        # a box entering during this step has already travelled the overshoot (matters for the variable
+        # steps of the physics clock; with fixed steps the overshoot is zero)
+        entry = self.geometry.x_start + BOX_SIZE / 2
         self._since_spawn += advance
         if self._since_spawn >= self.config.spacing:
             self._since_spawn -= self.config.spacing
             if self.config.max_boxes is None or self._next_id < self.config.max_boxes:
                 colored = [c for c, weight in self.config.color_weights.items() if c != BoxColor.GRAY and weight > 0]
                 if colored and self.config.blocked_pairs and self._rng.random() < self.config.blocked_pairs:
-                    gray = self.spawn_box(BoxColor.GRAY)
+                    gray = self.spawn_box(BoxColor.GRAY, x=entry + self._since_spawn)
                     self._follower = PAIR_GAP, self.C.getFrame(gray).getRelativePosition()[1]
                     self.pairs += 1
                 else:
-                    self.spawn_box()
+                    self.spawn_box(x=entry + self._since_spawn)
         if self._follower:
             travel, y = self._follower[0] - advance, self._follower[1]
             self._follower = (travel, y)
             if travel <= 1e-9:
                 colored = [c for c, weight in self.config.color_weights.items() if c != BoxColor.GRAY and weight > 0]
-                self.spawn_box(colored[self._rng.choice(len(colored))], y=y)
+                self.spawn_box(colored[self._rng.choice(len(colored))], x=entry - travel, y=y)
                 self._follower = None
