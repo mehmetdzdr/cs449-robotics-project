@@ -34,6 +34,19 @@ def test_figures_and_tables_from_logged_results(tmp_path):
     assert "Perception" not in tables and "Command mode" not in tables
 
 
+def test_physical_prediction_table(tmp_path):
+    pytest.importorskip("matplotlib")
+    results, out = tmp_path / "results", tmp_path / "figures"
+    results.mkdir()
+    rows = ["detector,predictor,horizon_s,predictions,mean_error_mm,p95_error_mm,step_mean_s,step_max_s,speed,hyper_speed"]
+    rows += [f"{d},{p},{h},100,{h * 2},{h * 3},0.2,0.4,0.1,1.0" for d in ("gt", "hsv") for p in ("cv", "kalman") for h in (0.5, 3.0)]
+    (results / "prediction_physics.csv").write_text("\n".join(rows) + "\n")
+    run("make_figures.py", "--results", results, "--out", out)
+    tables = (out / "tables.md").read_text()
+    assert "Prediction on the physical belt (0.1 m/s)" in tables
+    assert "| hsv | 0.200 / 0.400 | 1.00 / 1.00 | 6.00 / 6.00 |" in tables
+
+
 def test_committed_figures_exist():
     for name in ("manipulation_sorted.png", "perception.png", "prediction_error.png", "tables.md"):
         assert (EVALUATION / "figures" / name).exists(), name
