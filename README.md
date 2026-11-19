@@ -59,6 +59,7 @@ Requires Python 3.10 or newer.
 | `ImportError: libGLU.so.1` (Linux) | `sudo apt install libglu1-mesa` |
 | `ImportError: liblapack.so.3` or another missing `.so` (minimal Linux installs) | `sudo apt install liblapack3 libgl1 libfreetype6 libxrandr2 libxxf86vm1 libxi6` |
 | `GLFW error ... DISPLAY environment variable is missing` (headless Linux, SSH, CI) | `sudo apt install xvfb`, then prefix commands with `xvfb-run -a`, e.g. `xvfb-run -a pytest` |
+| `gripper 0 was not launched` from BotOp | `robotic` 0.4.2 does not launch simulated grippers: `pip install -U 'robotic>=0.4.3'` |
 | `FreeType Error: Failed to load font` warning | Harmless; only text overlays in the viewer are disabled |
 
 ## Demos

@@ -7,7 +7,7 @@ name = "conveyor-sort"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
-    "robotic",          # RAI / KOMO Python bindings
+    "robotic>=0.4.3",   # RAI / KOMO / BotOp; 0.4.2 does not launch simulated grippers
     "numpy",
     "opencv-python",    # HSV baseline
 ]

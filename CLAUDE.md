@@ -61,7 +61,8 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 
 ## Facts worth knowing
 
-- Grasping is kinematic by team decision (no physics engine): the box is attached to the gripper.
+- Physics migration in progress (roadmap #118): `physics/botop.py` starts BotOp in simulation mode (`start_simulation`), `wait_gripper` waits for a gripper command. Needs robotic >= 0.4.3 (0.4.2 does not launch simulated grippers). `gripperDone()` is briefly True right after a command: wait about 0.3 s before polling. BotOp's simulation runs in real time in its own thread.
+- Grasping is still kinematic in the pipeline (being replaced by friction grasps, #87, #91) (no physics engine): the box is attached to the gripper.
 - Stationary pick-and-place sequence: `plan_pick`, `grasp`, `plan_lift`, `plan_place`, `release`, `plan_lift` (retreat up, otherwise the fingers hit the box), `plan_home`; see `tests/test_place.py`.
 - `plan_moving_pick` path must be executed in exactly `pick_time - now` seconds; the planner treats the box as static at its current position for collision checks.
 - Never `delFrame` while planning is in use: RAI's collision engine keeps stale geometry (wrong KOMO results or a crash). `Conveyor.remove` parks boxes below the floor instead. Only `perception/dataset.py` deletes frames (no planning there).
