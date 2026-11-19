@@ -2,7 +2,7 @@
 
     python evaluation/make_figures.py            (needs matplotlib: pip install -e ".[eval]")
 
-Reads results/{manipulation,perception,prediction,command,command_fast}.csv, written by the benchmark scripts
+Reads results/{manipulation,perception,prediction,prediction_physics,command,command_fast}.csv, written by the benchmark scripts
 in this directory, and writes evaluation/figures/*.png and evaluation/figures/tables.md. A missing CSV is skipped.
 """
 import argparse
@@ -172,6 +172,17 @@ if rows_csv:
     table("Prediction: mean position error [mm] 3 s ahead, fit / Kalman", ["detection noise"] + [f"{n} detections" for n in frames],
           [[f"{noise:.0f} mm"] + [f"{float(value['cv', noise, n, 3.0]['mean_error_mm']):.2f} / "
                                   f"{float(value['kalman', noise, n, 3.0]['mean_error_mm']):.2f}" for n in frames] for noise in noises])
+
+rows_csv = read("prediction_physics.csv")
+if rows_csv:
+    horizons = sorted({float(r["horizon_s"]) for r in rows_csv})
+    value = {(r["detector"], r["predictor"], float(r["horizon_s"])): r for r in rows_csv}
+    detectors = list(dict.fromkeys(r["detector"] for r in rows_csv))
+    table(f"Prediction on the physical belt ({rows_csv[0]['speed']} m/s): mean position error [mm], fit / Kalman",
+          ["detector", "step mean / max [s]"] + [f"{h:g} s ahead" for h in horizons],
+          [[d, f"{float(value[d, 'cv', horizons[0]]['step_mean_s']):.3f} / {float(value[d, 'cv', horizons[0]]['step_max_s']):.3f}"]
+           + [f"{float(value[d, 'cv', h]['mean_error_mm']):.2f} / {float(value[d, 'kalman', h]['mean_error_mm']):.2f}" for h in horizons]
+           for d in detectors])
 
 # ---------------------------------------------------------------- command mode
 rows = []
