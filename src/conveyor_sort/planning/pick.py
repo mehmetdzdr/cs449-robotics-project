@@ -90,10 +90,11 @@ def _solve(komo: ry.KOMO) -> Plan:
     return Plan(path, bool(result.feasible), time.perf_counter() - start)
 
 
-def plan_place(C: ry.Config, robot_id: int, box: str, region: str, steps: int = 20) -> Plan:
-    """Plan carrying the grasped box to the centre of `region` and setting it down (vertical descent at the end)."""
+def plan_place(C: ry.Config, robot_id: int, box: str, region: str, steps: int = 20, clearance: float = 0.0) -> Plan:
+    """Plan carrying the grasped box to the centre of `region` and setting it down (vertical descent at the end),
+    `clearance` above its resting height."""
     gripper = f"{ROBOT_PREFIX[robot_id]}gripper"
-    resting = [0, 0, C.getFrame(region).getSize()[2] / 2 + BOX_SIZE / 2 + 0.001]   # box centre in the region frame
+    resting = [0, 0, C.getFrame(region).getSize()[2] / 2 + BOX_SIZE / 2 + 0.001 + clearance]   # box centre, region frame
     komo = _komo(C, steps)
     komo.addControlObjective([], 2, 1e0)
     komo.addControlObjective([], 0, 1e-2)
