@@ -20,24 +20,26 @@ from conveyor_sort.sim.scene import load_scene
 
 class World:
     def __init__(self, conveyor_config: ConveyorConfig | None = None, dt: float = 0.05,
-                 physics: bool = False, hyper_speed: float = 1.0):
+                 physics: bool = False, hyper_speed: float = 1.0, friction: float | None = None):
         self.C = load_scene()
         self.conveyor = Conveyor(self.C, conveyor_config, physics=physics)
         self.dt = dt
         self.time = 0.0   # simulation time [s]; use this for Detection / Track timestamps
         self.bot: ry.BotOp | None = None
         self.arms = None                  # physics backend: physics.arms.ArmReferences, used by follow_path
+        self.fingers: dict[int, int] = {}  # physics backend: robot_id -> index of its finger joint in q
         self.hyper_speed = hyper_speed
         if physics:
             from conveyor_sort.physics.arms import ArmReferences
             from conveyor_sort.physics.botop import start_simulation
-            from conveyor_sort.physics.friction_grasp import set_friction
-            set_friction()
+            from conveyor_sort.physics.friction_grasp import FINGER_OPEN, FRICTION, activate_fingers, set_friction
+            set_friction(FRICTION if friction is None else friction)
+            self.fingers = activate_fingers(self.C)
             self.bot = start_simulation(self.C, hyper_speed)
             self.conveyor.bot = self.bot
             self.bot.sync(self.C, 0.0)
             self._t0 = self.bot.get_t()   # BotOp's clock already runs during start-up; World.time starts at 0
-            self.arms = ArmReferences(self.bot)
+            self.arms = ArmReferences(self.bot, self.C, self.fingers, FINGER_OPEN)
 
     def step(self) -> None:
         if self.bot is None:

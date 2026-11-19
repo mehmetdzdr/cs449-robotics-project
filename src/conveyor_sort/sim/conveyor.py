@@ -6,7 +6,7 @@ Two backends:
   simulation. They must all exist before the simulation starts (a body added later crashes `bot.sync`), so a
   pool of `ConveyorConfig.pool` boxes waits on the ground out of view and a spawn moves the next one to the belt start.
   The belt drives every box resting on its surface by `speed * dt` per step (`bot.cheat_setFramePose`); a box
-  lifted off the belt or between a gripper's fingers is never written to, so it moves by physics only. A box
+  lifted off the belt or held by a gripper (`hold`) is never written to, so it moves by physics only. A box
   driven past the belt end tips over the edge, falls onto the table and is counted as missed.
 """
 from dataclasses import dataclass, field
@@ -59,7 +59,6 @@ class ConveyorConfig:
 PAIR_GAP = 0.08   # distance between the two boxes of a blocked pair [m]: the gray one is in the way of a grasp
 BOX_MASS = 0.1    # physics backend [kg]
 ON_BELT_TOL = 0.01      # physics backend: a box is on the belt if its centre is within this of the resting height [m]
-GRIPPER_CLEARANCE = 0.06  # physics backend: a box this close to a gripper centre is in its hand, not driven [m]
 
 
 def _storage_position(index: int) -> list[float]:
@@ -76,6 +75,7 @@ class Conveyor:
         self.config = config or ConveyorConfig()
         self.physics = physics
         self.bot: ry.BotOp | None = None   # physics backend: set by World once the simulation runs
+        self.held: set[str] = set()        # physics backend: boxes a gripper has closed on (see hold)
         if physics:
             for i in range(self.config.pool):
                 C.addFrame(f"box_{i}").setShape(ry.ST.ssBox, [BOX_SIZE, BOX_SIZE, BOX_SIZE, 0.005]).setPosition(
@@ -131,14 +131,22 @@ class Conveyor:
         if not self.physics:
             return [name for name in self.colors if self.C.getFrame(name).getParent().name == BELT]
         g = self.geometry
-        grippers = [self.C.getFrame(f).getPosition() for f in ("l_gripper", "r_gripper")]
         carried = []
         for name in self.colors:
             x, y, z = self.C.getFrame(name).getPosition()
-            if (g.x_start <= x <= g.x_end and abs(y - g.y) <= g.width / 2 and abs(z - g.z_top - BOX_SIZE / 2) < ON_BELT_TOL
-                    and all(np.linalg.norm(p - [x, y, z]) > GRIPPER_CLEARANCE for p in grippers)):
+            if (name not in self.held and g.x_start <= x <= g.x_end and abs(y - g.y) <= g.width / 2
+                    and abs(z - g.z_top - BOX_SIZE / 2) < ON_BELT_TOL):
                 carried.append(name)
         return carried
+
+    def hold(self, box: str) -> None:
+        """Physics backend: a gripper is about to close on `box`; the belt stops driving it (no pose writes on a
+        box in a gripper). The box then rests on the belt surface until it is lifted."""
+        self.held.add(box)
+
+    def unhold(self, box: str) -> None:
+        """Physics backend: the grasp failed or the box was released; the belt drives it again if it is on it."""
+        self.held.discard(box)
 
     def _set_pose(self, name: str, position, quaternion) -> None:
         """Physics backend: move a box in the simulation (and in C, which the next sync would update anyway)."""
