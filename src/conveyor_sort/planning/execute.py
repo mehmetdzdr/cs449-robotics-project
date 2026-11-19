@@ -9,7 +9,18 @@ from conveyor_sort.sim.world import World
 
 def follow_path(world: World, path: np.ndarray, duration: float, robot_id: int | None = None) -> Iterator[None]:
     """Generator form of `execute_path`: sets the joints for one simulation step, then yields for the caller to
-    step the world. With `robot_id` only that robot's joints are moved, so both arms can follow their own paths."""
+    step the world. With `robot_id` only that robot's joints are moved, so both arms can follow their own paths.
+
+    Physics backend: the path goes to BotOp's controller as a joint reference (`physics.arms`) that ends at
+    `world.time + duration` on the simulation clock (planning time that passed meanwhile is taken from the path,
+    so a pick still arrives at its pick time); the generator yields until that time.
+    """
+    if world.bot is not None:
+        end = world.time + duration
+        world.arms.set_path(robot_id, np.asarray(path), end + world._t0)
+        while world.time < end - 1e-6:
+            yield
+        return
     joints = slice((robot_id - 1) * 7, robot_id * 7) if robot_id else slice(None)
     waypoints = np.vstack([world.C.getJointState(), path])[:, joints]   # start from the current joint state
     n_steps = max(1, round(duration / world.dt))

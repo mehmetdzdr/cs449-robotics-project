@@ -26,8 +26,10 @@ class World:
         self.dt = dt
         self.time = 0.0   # simulation time [s]; use this for Detection / Track timestamps
         self.bot: ry.BotOp | None = None
+        self.arms = None                  # physics backend: physics.arms.ArmReferences, used by follow_path
         self.hyper_speed = hyper_speed
         if physics:
+            from conveyor_sort.physics.arms import ArmReferences
             from conveyor_sort.physics.botop import start_simulation
             from conveyor_sort.physics.friction_grasp import set_friction
             set_friction()
@@ -35,6 +37,7 @@ class World:
             self.conveyor.bot = self.bot
             self.bot.sync(self.C, 0.0)
             self._t0 = self.bot.get_t()   # BotOp's clock already runs during start-up; World.time starts at 0
+            self.arms = ArmReferences(self.bot)
 
     def step(self) -> None:
         if self.bot is None:
@@ -66,5 +69,6 @@ class World:
         """Stop the physics simulation (no-op for the kinematic backend)."""
         if self.bot is not None:
             self.conveyor.bot = None      # the last reference must go, or BotOp lives on (and crashes at exit)
+            self.arms = None
             del self.bot
             self.bot = None

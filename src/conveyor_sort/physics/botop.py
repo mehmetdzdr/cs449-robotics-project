@@ -6,6 +6,9 @@ import robotic as ry
 
 MIN_ROBOTIC = (0, 4, 3)   # 0.4.2 does not launch simulated grippers
 GRIPPER_START_DELAY = 0.3  # gripperDone() is briefly True right after a gripper command, before the motion starts [s]
+# PhysX joint drive gains. With the defaults the arm lags its reference: a 2 s pick path ended 19 to 30 mm short
+# of its planned gripper pose (1 s path: 120 mm). With these: 1 mm (1 s path: 17 mm, 0.4 mm 0.1 s later).
+MOTOR_KP, MOTOR_KD = 1e4, 200.0
 
 
 def check_robotic_version() -> None:
@@ -24,7 +27,8 @@ def start_simulation(C: ry.Config, hyper_speed: float = 1.0) -> ry.BotOp:
     check_robotic_version()
     # always a float: params_add does not overwrite a parameter with a value of another type (an int 5 after
     # the float 1.0 was silently ignored)
-    ry.params_add({"botsim/verbose": 0, "physx/verbose": 0, "botsim/hyperSpeed": float(hyper_speed)})
+    ry.params_add({"botsim/verbose": 0, "physx/verbose": 0, "botsim/hyperSpeed": float(hyper_speed),
+                   "physx/motorKp": MOTOR_KP, "physx/motorKd": MOTOR_KD})
     return ry.BotOp(C, useRealRobot=False)
 
 
