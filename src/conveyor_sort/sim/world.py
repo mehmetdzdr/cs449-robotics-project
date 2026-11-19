@@ -6,7 +6,8 @@ Two backends:
   (there is no stepping mode). A step waits until `dt` of simulation time has passed (`bot.sync`, which waits
   in wall-clock time) and reads the clock from `bot.get_t()`, so steps are `dt` or a little longer and two
   runs with the same seed are not identical. The conveyor is advanced by the simulation time that actually
-  passed. Paths, grasps and the belt are still kinematic until #89 to #91. `close()` a physics World before
+  passed; boxes are physics bodies driven by the belt (see conveyor.py). Paths and grasps are still kinematic
+  until #90 and #91. `close()` a physics World before
   starting the next one.
 """
 from typing import Callable
@@ -21,14 +22,17 @@ class World:
     def __init__(self, conveyor_config: ConveyorConfig | None = None, dt: float = 0.05,
                  physics: bool = False, hyper_speed: float = 1.0):
         self.C = load_scene()
-        self.conveyor = Conveyor(self.C, conveyor_config)
+        self.conveyor = Conveyor(self.C, conveyor_config, physics=physics)
         self.dt = dt
         self.time = 0.0   # simulation time [s]; use this for Detection / Track timestamps
         self.bot: ry.BotOp | None = None
         self.hyper_speed = hyper_speed
         if physics:
             from conveyor_sort.physics.botop import start_simulation
+            from conveyor_sort.physics.friction_grasp import set_friction
+            set_friction()
             self.bot = start_simulation(self.C, hyper_speed)
+            self.conveyor.bot = self.bot
             self.bot.sync(self.C, 0.0)
             self._t0 = self.bot.get_t()   # BotOp's clock already runs during start-up; World.time starts at 0
 
@@ -61,5 +65,6 @@ class World:
     def close(self) -> None:
         """Stop the physics simulation (no-op for the kinematic backend)."""
         if self.bot is not None:
+            self.conveyor.bot = None      # the last reference must go, or BotOp lives on (and crashes at exit)
             del self.bot
             self.bot = None

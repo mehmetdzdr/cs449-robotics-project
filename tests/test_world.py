@@ -50,7 +50,7 @@ def test_physics_clock_comes_from_botop(physics_world):
     assert steps.min() >= world.dt - 1e-6 and steps.mean() < 1.5 * world.dt  # a step is dt or a little more
     box = world.conveyor.on_belt()[0]                                          # the belt moved by the elapsed time
     x_start = world.conveyor.geometry.x_start + 0.03
-    assert world.C.getFrame(box).getPosition()[0] - x_start == pytest.approx(0.1 * world.time, abs=1e-6)
+    assert world.C.getFrame(box).getPosition()[0] - x_start == pytest.approx(0.1 * world.time, abs=1e-4)  # a physics body
     world.close()
     assert world.bot is None
 
