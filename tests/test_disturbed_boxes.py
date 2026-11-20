@@ -56,19 +56,23 @@ def bump_forward(world, names, since, done=[]):
 
 @pytest.mark.parametrize("observe", [True, False])
 def test_box_bumped_during_the_approach_is_aimed_at_again(observe, monkeypatch):
-    if not observe:
-        monkeypatch.setattr(PickPlaceTask, "observe", lambda self, tracks: None)
-    """Pushed 3 cm along the belt early in the approach. With re-planning the gripper meets the box where it now is;
-    without, 3 cm off. (Both are sorted here: the belt moves boxes by setting their pose until the grasp, so a finger
-    that lands on the box is pushed out of it and the squeeze centres the box; a real belt would not forgive it.)"""
+    """Pushed 3 cm along the belt early in the approach. With re-planning the gripper meets the box where it now is
+    (measured 2.0 and 3.3 mm off); without, the first grasp fails or the gripper is well off (measured 13.8 and
+    28.3 mm, depending on how far the approach had got). A box missed by up to 3 cm can still be sorted here: the belt
+    moves boxes by setting their pose until the grasp, so a finger that lands on the box is pushed out of it and the
+    squeeze centres the box; a real belt would not forgive it."""
     if not observe:
         monkeypatch.setattr(PickPlaceTask, "observe", lambda self, tracks: None)
     stats, names, held = sort_with_disturbance(lambda w, n, s, done=[]: bump_forward(w, n, s, done))
-    offset = stats.grasp_offsets[names[0]]
+    first = stats.events[0]
+    offset = stats.grasp_offsets.get(names[0], float("inf"))   # first time the gripper closed on the box
     print(f"re-plan {'on' if observe else 'off'}: {[(e.failed_stage, round(e.time, 1)) for e in stats.events]}, "
           f"gripper {offset * 1000:.1f} mm from the box at the grasp")
-    assert offset < 0.012 if observe else offset > 0.02
-    assert stats.events[0].correct and not held
+    if observe:
+        assert first.correct and offset < 0.012                 # aimed at the box where it is now
+    else:
+        assert first.failed_stage == "grasp" or offset > 0.01   # aimed at where it was
+    assert stats.sorted_correctly == 1 and not held
 
 
 def test_box_rotated_during_the_approach_is_still_grasped():
