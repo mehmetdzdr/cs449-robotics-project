@@ -1,9 +1,11 @@
 """Buffer (#101, #149): each robot can take a box from every buffer slot to its own region. Planning only (kinematic
-World, KOMO): stationary pick, lift, place into the first slot of the region."""
+World, KOMO): stationary pick, lift, carry home, place into the first slot of the region. Without the carry home the
+place was infeasible from 4 of 6 slots for Robot 2 and 1 of 6 for Robot 1: the arm swings about 180 deg around its base.
+"""
 import numpy as np
 
 from conveyor_sort.interfaces import BoxColor
-from conveyor_sort.planning.pick import plan_lift, plan_pick, plan_place
+from conveyor_sort.planning.pick import plan_home, plan_lift, plan_pick, plan_place
 from conveyor_sort.sim.conveyor import ConveyorConfig
 from conveyor_sort.sim.regions import BUFFER, SLOTS, slot_position
 from conveyor_sort.sim.scene import ROBOT_PREFIX
@@ -21,6 +23,7 @@ def stages(robot_id: int, slot: int) -> dict[str, bool]:
     feasible = {}
     for stage, plan_fn in [("pick", lambda: plan_pick(C, robot_id, box)),
                            ("lift", lambda: plan_lift(C, robot_id)),
+                           ("carry", lambda: plan_home(C, robot_id)),
                            ("place", lambda: plan_place(C, robot_id, box, TARGET[robot_id], offset=SLOTS[0]))]:
         plan = plan_fn()
         feasible[stage] = plan.feasible
@@ -36,4 +39,4 @@ def test_every_buffer_slot_can_be_taken_to_the_region():
     table = {(r, s): stages(r, s) for r in (1, 2) for s in range(len(SLOTS))}
     report = "\n".join(f"robot {r} slot {s} {np.round(SLOTS[s], 2)}: {f}" for (r, s), f in table.items())
     print(report)
-    assert all(len(f) == 3 and all(f.values()) for f in table.values()), report
+    assert all(len(f) == 4 and all(f.values()) for f in table.values()), report

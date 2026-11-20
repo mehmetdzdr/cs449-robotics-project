@@ -30,8 +30,8 @@ LOST_TIME = 1.2           # ... a box not seen for this long has left the belt (
 class PickPlaceResult:
     success: bool
     planning_time: float            # summed KOMO solve time of all stages [s]
-    failed_stage: str | None        # "pick", "lost", "grasp", "slip", "lift", "place", "drop", "release", "retreat", "home",
-                                    # "full", or None on success
+    failed_stage: str | None        # "pick", "lost", "grasp", "slip", "lift", "carry", "place", "drop", "release", "retreat",
+                                    # "home", "full", or None on success
     box: str | None                 # frame name of the grasped box
     place_error: float | None = None   # physics backend: placed box centre to its slot centre in xy [m]
     tilt: float | None = None          # physics backend: placed box's tilt from upright [deg]
@@ -57,7 +57,7 @@ class PickPlaceTask:
     `result.tilt` are measured at the end; failed stage "release": the box is not upright (tilt >= MAX_TILT) or
     not inside the region; "full": every slot is taken (checked before the arm moves). `pick_only=True` ends
     after the lift (success = the box is held). `box`: the box to pick when it is not on the belt (a box in the
-    buffer, #101; `track` then stands still where it lies).
+    buffer, #101; `track` then stands still where it lies; the box is carried home before the place, #149).
     """
 
     def __init__(self, world: World, assignment: Assignment, track: Track, across_belt: bool = False,
@@ -289,6 +289,15 @@ class PickPlaceTask:
         if result.failed_stage is None and self.pick_only:
             result.success = True
             return
+        if result.failed_stage is None and self.box is not None:
+            # from the buffer the place swings the arm about 180 deg around its base: planned in one go it was
+            # infeasible from 4 of 6 slots for Robot 2, 1 of 6 for Robot 1 (#149); carried home first, it is not
+            def carry():
+                with planning_view(world, robot, box):
+                    return plan_home(C, robot)
+
+            if not (yield from run("carry", carry, HOME_TIME, carrying=box)):
+                result.failed_stage = result.failed_stage or "carry"
         placed, slot = False, None
         if result.failed_stage is None:
             slots = free_slots(C, region, [b for b in world.conveyor.colors if b != box])
