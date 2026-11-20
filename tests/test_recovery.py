@@ -24,7 +24,7 @@ def test_missed_grasp_is_retried():
     nothing; with correct detections afterwards the box is picked again and sorted."""
     world = World(ConveyorConfig(speed=0.05, max_boxes=0), physics=True)
     try:
-        world.conveyor.spawn_box(BoxColor.RED, x=-0.9, y=0.0)
+        world.conveyor.spawn_box(BoxColor.RED, x=-0.5, y=0.0)    # within Robot 1's reach (from -0.6, #154)
         truth = GroundTruthDetector(world).detect
 
         def detect() -> list[Detection]:

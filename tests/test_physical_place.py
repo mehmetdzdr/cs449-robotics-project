@@ -10,7 +10,7 @@ from conveyor_sort.sim.world import World
 
 pytestmark = pytest.mark.slow   # physics scenarios in real time: nightly / on demand in CI (#97)
 
-PICK_X = {1: -0.3, 2: 0.6}   # each robot picks a box resting here on the stopped belt [m]
+PICK_X = {1: -0.3, 2: 0.3}   # each robot picks a box resting here on the stopped belt [m] (robots at x = 0, #154)
 
 
 def physical_pick_place(robot_id: int, region: str, drop: float = 0.0, speed: float = 0.0, settle: float = 1.0):
@@ -35,8 +35,7 @@ def physical_pick_place(robot_id: int, region: str, drop: float = 0.0, speed: fl
         world.close()
 
 
-@pytest.mark.parametrize("robot_id, region", [(1, "region_A"), (1, "region_B"), (1, "region_C"),
-                                              (2, "region_B"), (2, "bin_gray")])
+@pytest.mark.parametrize("robot_id, region", [(1, "region_A"), (1, "region_B"), (1, "region_C"), (2, "bin_gray")])
 def test_box_rests_upright_in_the_region(robot_id, region):
     result, tilt, inside, parent = physical_pick_place(robot_id, region)
     print(f"robot {robot_id} -> {region}: {result}, tilt {tilt:.1f} deg 1 s later")

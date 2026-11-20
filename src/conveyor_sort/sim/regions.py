@@ -37,10 +37,14 @@ def slot_position(C: ry.Config, region: str, slot: int) -> np.ndarray:
 
 
 def free_slots(C: ry.Config, region: str, boxes) -> list[int]:
-    """The slots of `region` that none of `boxes` occupies, in order."""
+    """The slots of `region` that none of `boxes` occupies, farthest from the belt centre line first: the arm comes
+    from the belt side and must not reach over boxes already placed (#154: Robot 2's bin is on the other side of the
+    belt; filled near to far, the fourth box was released 18 cm from its slot and tipped over)."""
     occupied = [C.getFrame(b).getPosition()[:2] for b in boxes]
-    return [slot for slot in range(len(SLOTS))
+    belt_y = C.getFrame("belt").getPosition()[1]
+    free = [slot for slot in range(len(SLOTS))
             if not any(np.all(np.abs(p - slot_position(C, region, slot)) < SLOT_TOLERANCE) for p in occupied)]
+    return sorted(free, key=lambda slot: -abs(slot_position(C, region, slot)[1] - belt_y))
 
 
 def free_slot(C: ry.Config, region: str, boxes) -> int | None:

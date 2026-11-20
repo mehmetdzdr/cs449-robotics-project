@@ -207,8 +207,8 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
             for track_id in decision.infeasible:          # reported once, then left alone (#102)
                 blocked[track_id] = float("inf")
                 stats.infeasible.append((world.time, colors[track_id]))
-            for track_id, start in decision.later.items():   # planned again then
-                blocked[track_id] = start
+            for track_id, earliest in decision.later.items():   # planned again then (not `start`: that is the
+                blocked[track_id] = earliest                    # function that starts a task, below)
             if decision.job:
                 clearing.update(job=decision.job, next=0)
                 for step in decision.job.steps:

@@ -34,7 +34,7 @@ belt: {
 
 region_A: { X: [-0.44, -0.45, 0.601], shape: box, size: [.2, .2, .002], color: [1., .85, .85] }
 region_B: { X: [-0.66, -0.45, 0.601], shape: box, size: [.2, .2, .002], color: [.85, 1., .85] }
-region_C: { X: [-0.55, -0.12, 0.601], shape: box, size: [.2, .2, .002], color: [.85, .85, 1.] }
+region_C: { X: [-0.55, -0.20, 0.601], shape: box, size: [.2, .2, .002], color: [.85, .85, 1.] }
 bin_gray: { X: [ 0.45,  0.80, 0.601], shape: box, size: [.2, .2, .002], color: [.8, .8, .8] }
 
 # buffer (#101): for a blocker that the robot removing it cannot take to its own region. With the robots on opposite

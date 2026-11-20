@@ -20,6 +20,14 @@ class Plan:
 
 ARM_JOINT_NAMES = [f"{prefix}panda_joint{i}" for prefix in ROBOT_PREFIX.values() for i in range(1, 8)]
 _FULL_STATE: dict[int, tuple[np.ndarray, list[int]]] = {}   # id(komo) -> (full q, planned indices in it), see _komo
+# Within own_arm_only, the hand and forearm of the planning arm keep this distance to the other arm's hand and forearm
+# while that one is over or near the belt (gripper within NEAR_BELT of its centre line) (#154). The collision term
+# alone only keeps distance >= 0 at the waypoints: a home path planned next to Robot 2's arm (squeezing a box on Robot
+# 1's half of the belt) touched it when executed. With 3 cm: no contact in the same run, closest 2.8 cm. It costs
+# planning time (pick 0.04 s -> 0.12 s), which passes in real time on physics: not added while the other arm is at
+# home or over its own regions, far from the belt.
+MARGIN = 0.03      # [m]
+NEAR_BELT = 0.25   # [m]
 _OWN_ARM_ONLY: set[int] = set()                               # id(C) of configs planned with own_arm_only
 
 
@@ -58,7 +66,20 @@ def _komo(C: ry.Config, steps: int, robot_id: int) -> ry.KOMO:
             activate_fingers(C)                 # ... plus the fingers
         C.setJointState(q)
     _FULL_STATE[id(komo)] = q, planned
+    other = next(r for r in ROBOT_PREFIX if r != robot_id)
+    belt_y = C.getFrame("belt").getPosition()[1]
+    if own_only and MARGIN and abs(C.getFrame(f"{ROBOT_PREFIX[other]}gripper").getPosition()[1] - belt_y) < NEAR_BELT:
+        for own_shape in _arm_shapes(C, robot_id):
+            for other_shape in _arm_shapes(C, other):
+                komo.addObjective([], ry.FS.negDistance, [own_shape, other_shape], ry.OT.ineq, [1e1], [-MARGIN])
     return komo
+
+
+def _arm_shapes(C: ry.Config, robot_id: int) -> list[str]:
+    """Collision shapes of a robot's forearm, hand and fingers (where two arms reaching over the belt meet)."""
+    prefix, names = ROBOT_PREFIX[robot_id], set(C.getFrameNames())
+    return [n for n in [f"{prefix}panda_coll{i}" for i in range(5, 8)] + [f"{prefix}palm", f"{prefix}finger1", f"{prefix}finger2"]
+            if n in names]
 
 
 def plan_pick(C: ry.Config, robot_id: int, box: str, steps: int = 20) -> Plan:
