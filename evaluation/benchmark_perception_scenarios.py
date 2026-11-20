@@ -53,7 +53,7 @@ def hover(world, robot: int, position, duration: float = 2.5):
     """Move the robot's gripper to `position` (pointing down) and wait there."""
     from conveyor_sort.planning.pick import _komo, _solve   # arm joints only, fingers kept (physics backend)
     gripper = "l_gripper" if robot == 1 else "r_gripper"
-    komo = _komo(world.C, 20)
+    komo = _komo(world.C, 20, robot)
     komo.addControlObjective([], 2, 1e0)
     komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
     komo.addObjective([1.0], ry.FS.position, [gripper], ry.OT.eq, [1e1], position)
