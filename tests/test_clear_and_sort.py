@@ -8,6 +8,7 @@ from conveyor_sort.interfaces import BoxColor, Track
 from conveyor_sort.sim.conveyor import ConveyorConfig
 from conveyor_sort.sim.ground_truth import GroundTruthDetector
 from conveyor_sort.sim.regions import BUFFER
+from conveyor_sort.sim.scenarios import make_scenario
 from conveyor_sort.sim.world import World
 from conveyor_sort.sorting import run_robots
 
@@ -117,10 +118,14 @@ def cluster(x, speed, target_color=BoxColor.RED, time=5.0):
             track(2, BoxColor.GRAY, x, y=0.2 + d, speed=speed, time=time)]
 
 
-def plan(tracks, roles, buffer_free=6):
+def decide(tracks, roles, buffer_free=6):
     world = World(ConveyorConfig(max_boxes=0))
     world.time = 5.0
     return plan_clearing_job(world, tracks, {t.track_id: 0.0 for t in tracks}, {}, roles, buffer_free)
+
+
+def plan(tracks, roles, buffer_free=6):
+    return decide(tracks, roles, buffer_free).job
 
 
 def test_destination_is_the_own_region_only():
@@ -150,12 +155,54 @@ def test_gray_blocker_robot_2_can_reach_goes_straight_into_the_bin(x, target_col
     assert all((s.robot_id, s.region) == (2, "bin_gray") for s in job.steps if s.track_id in (1, 2))
 
 
-def test_target_robot_1_cannot_reach_in_robot_2_only_zone_is_left_alone():
-    assert plan(cluster(0.6, 0.01), {1: COLORED}) is None
+def test_target_robot_1_cannot_reach_in_robot_2_only_zone_is_reported():
+    decision = decide(cluster(0.6, 0.01), {1: COLORED})
+    assert decision.job is None and decision.infeasible == [0]
 
 
 def test_clearing_that_cannot_finish_in_time_is_not_started():
     surrounded = cluster(-0.7, 0.1) + [track(3, BoxColor.GRAY, -0.761, speed=0.1, time=5.0),
                                        track(4, BoxColor.GRAY, -0.7, y=0.139, speed=0.1, time=5.0)]
-    assert plan(surrounded, {1: COLORED}) is None         # two removals: the red box would be out of reach
-    assert plan(cluster(-0.7, 0.1), {1: COLORED}) is None   # one removal, 0.1 m/s: out of reach after 12.5 s
+    assert decide(surrounded, {1: COLORED}).infeasible == [0]      # two removals: the red box would be out of reach
+    assert decide(cluster(-0.7, 0.1), {1: COLORED}).infeasible == [0]   # one removal, 0.1 m/s: out of reach after 12.5 s
+
+
+# Time limits (#102): the whole schedule is checked before the first removal, with the earliest start that works.
+
+def layout(blockers, x, speed):
+    """A red target at `x` with 1 (in front), 2 (in front, far side) or 3 (in front, behind, far side) gray boxes
+    touching it. 1: grasped across, no removal; 2 and 3: one removal frees an axis."""
+    d = 0.061
+    offsets = {1: [(d, 0)], 2: [(d, 0), (0, d)], 3: [(d, 0), (-d, 0), (0, d)]}[blockers]
+    return [track(0, BoxColor.RED, x, speed=speed, time=5.0)] + [
+        track(i + 1, BoxColor.GRAY, x + dx, y=0.2 + dy, speed=speed, time=5.0) for i, (dx, dy) in enumerate(offsets)]
+
+
+@pytest.mark.parametrize("speed, blockers, removals", [
+    (0.05, 1, 0), (0.05, 2, 1), (0.05, 3, 1),
+    (0.1, 1, 0), (0.1, 2, None), (0.1, 3, None),        # None: reported infeasible (target out of reach after 15.5 s)
+    (0.2, 1, 0), (0.2, 2, None), (0.2, 3, None),
+])
+def test_clearing_is_started_only_if_it_finishes_in_time(speed, blockers, removals):
+    decision = decide(layout(blockers, -0.85, speed), {1: COLORED})
+    if removals is None:
+        assert decision.job is None and decision.infeasible == [0] and not decision.later
+    else:
+        assert decision.job.target == 0 and len(decision.job.steps) == removals + 1
+        assert decision.job.steps[-1].across_belt or blockers != 1     # one box in front only: grasped across
+
+
+def test_clearing_that_can_start_later_is_deferred():
+    """Robot 2 alone, a gray target behind a red box (and one on the far side), upstream of Robot 2's reach: the red
+    box can only be put into the buffer once it is within reach, so the clearing starts later."""
+    tracks = [track(0, BoxColor.GRAY, -0.6, time=5.0), track(1, BoxColor.RED, -0.539, time=5.0),
+              track(2, BoxColor.RED, -0.6, y=0.261, time=5.0)]
+    decision = decide(tracks, {2: (BoxColor.GRAY,)})
+    assert decision.job is None and decision.infeasible == [] and 5.0 < decision.later[0] < 25.0
+
+
+def test_cluster_that_cannot_be_cleared_in_any_order_is_reported():
+    scenario = make_scenario("cluster_3x3", spacing="touching", x=-0.8)
+    tracks = [track(0, BoxColor.RED, scenario.target[0], y=scenario.target[1], time=5.0)] + [
+        track(i + 1, color, p[0], y=p[1], time=5.0) for i, (color, p) in enumerate(scenario.neighbours)]
+    assert decide(tracks, {1: COLORED}).infeasible == [0]

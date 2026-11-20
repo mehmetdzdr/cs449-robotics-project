@@ -44,6 +44,8 @@ class SortingStats:
     conflicts: int = 0         # (robot, box) pairs refused at least once because the other robot held the shared area
     waiting_time: float = 0.0  # robot time spent idle only because the shared area was occupied [s]
     clear_and_sort: list[bool] = field(default_factory=list)   # one entry per attempt: wanted box sorted after the gray one was removed
+    infeasible: list[tuple[float, BoxColor]] = field(default_factory=list)   # physics: blocked boxes that cannot be
+    # cleared in time, reported (time, color) and left alone (#102)
     min_arm_distance: float = float("inf")   # physics backend: closest approach of the two arms [m] (inf: never within 0.2 m)
     arm_contacts: list[tuple[float, str, str]] = field(default_factory=list)   # physics backend: (time, frame, frame)
     tracking_errors: list[float] = field(default_factory=list)   # per step and track: distance to its true box [m]
@@ -94,7 +96,8 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
     Robot 2 removes it first and Robot 1 then sorts the box (needs both robots). Physics backend (#101): a clearing
     job (`plan_clearing_job`, planned while every robot is free) removes the blockers one by one, each by whichever
     robot can reach it, into its own region or the buffer, then the target is sorted; a robot with nothing else to
-    do takes a box from the buffer to its region. `SortingStats.clear_and_sort` has one entry per job.
+    do takes a box from the buffer to its region. `SortingStats.clear_and_sort` has one entry per job; a blocked box that
+    cannot be cleared before it leaves reach is reported in `SortingStats.infeasible` instead of tried (#102).
 
     `detect()` returns the detections of the current camera frame (ground truth or a vision detector).
 
@@ -198,11 +201,17 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         previous one has ended. Returns the free robots that are not reserved for the job."""
         if not clearing and set(free) == set(roles) and world.time >= not_before["clearing"]:
             not_before["clearing"] = world.time + RETRY_DELAY      # KOMO reachability checks: not every step
-            job = plan_clearing_job(world, tracks, first_seen, blocked, roles,
-                                    len(free_slots(world.C, BUFFER, world.conveyor.colors)))
-            if job:
-                clearing.update(job=job, next=0)
-                for step in job.steps:
+            decision = plan_clearing_job(world, tracks, first_seen, blocked, roles,
+                                         len(free_slots(world.C, BUFFER, world.conveyor.colors)))
+            colors = {track.track_id: track.color for track in tracks}
+            for track_id in decision.infeasible:          # reported once, then left alone (#102)
+                blocked[track_id] = float("inf")
+                stats.infeasible.append((world.time, colors[track_id]))
+            for track_id, start in decision.later.items():   # planned again then
+                blocked[track_id] = start
+            if decision.job:
+                clearing.update(job=decision.job, next=0)
+                for step in decision.job.steps:
                     blocked[step.track_id] = float("inf")
         if not clearing:
             return free
