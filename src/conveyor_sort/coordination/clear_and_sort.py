@@ -8,7 +8,7 @@ Physics backend (`plan_clearing_job`, #101): the blockers to remove come from `p
 blocker to its own region (Robot 1 and a gray box) puts it into the buffer, from where another robot takes it on.
 The steps run one after another, never two arms at the cluster at once (see `plan_clear_and_sort` for why).
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -95,6 +95,7 @@ def _usable(world: World, first_seen: dict[int, float], blocked: dict[int, float
 # LEAD_TIME later. The schedule is checked with this time between two grasps [s].
 STEP_TIME = 12.5
 NEAR = 0.25            # neighbours considered for clearing: centre within this of the target, along and across [m]
+SEARCH_STEP = 2.0      # a clearing that cannot start now is tried with starts this far apart (#102) [s]
 
 
 @dataclass
@@ -119,19 +120,55 @@ def destination(robot_id: int, color: BoxColor) -> str | None:
     return BUFFER if robot_id in BUFFER_ROBOTS else None
 
 
+@dataclass
+class ClearingDecision:
+    job: ClearingJob | None = None                                # to start now
+    later: dict[int, float] = field(default_factory=dict)         # target -> earliest start of a feasible clearing [s]
+    infeasible: list[int] = field(default_factory=list)           # targets that cannot be cleared in time at all
+
+
+def _schedule(world: World, target: Track, near: list[Track], plan, roles: dict[int, tuple[BoxColor, ...]],
+              buffer_free: int, start: float) -> list[ClearingStep] | None:
+    """The steps of a clearing whose first step is decided at `start` (step k grasps at start + LEAD_TIME +
+    k * STEP_TIME), or None if the target or a blocker would be out of reach at its time."""
+    at = target.predict(start + LEAD_TIME + len(plan.removals) * STEP_TIME)
+    sorter = next((r for r in sorted(roles) if target.color in roles[r] and can_pick(world.C, r, at)), None)
+    if sorter is None:                                     # checked first: it is the last step, the likeliest to fail
+        return None
+    steps, in_buffer = [], 0
+    for k, removal in enumerate(plan.removals):
+        box = near[removal.box]
+        at = box.predict(start + LEAD_TIME + k * STEP_TIME)
+        options = [(robot_id, destination(robot_id, box.color)) for robot_id in sorted(roles)]
+        options = sorted([o for o in options if o[1] is not None], key=lambda o: o[1] == BUFFER)
+        for robot_id, region in options:
+            if (region != BUFFER or in_buffer < buffer_free) and can_pick(world.C, robot_id, at):
+                steps.append(ClearingStep(robot_id, box.track_id, region, removal.axis == "across"))
+                in_buffer += region == BUFFER
+                break
+        else:
+            return None                                    # this blocker cannot be removed in time
+    return steps + [ClearingStep(sorter, target.track_id, DEFAULT_TARGET[target.color], plan.target_axis == "across")]
+
+
 def plan_clearing_job(world: World, tracks: list[Track], first_seen: dict[int, float], blocked: dict[int, float],
-                      roles: dict[int, tuple[BoxColor, ...]], buffer_free: int) -> ClearingJob | None:
-    """A clearing job for the most urgent box (furthest downstream) of a color in `roles` that `allocate` leaves
-    alone because a neighbour blocks its grasp along the belt; None if there is none, or none can be done in time.
+                      roles: dict[int, tuple[BoxColor, ...]], buffer_free: int) -> ClearingDecision:
+    """Clearing for the boxes of a color in `roles` that `allocate` leaves alone because a neighbour blocks their
+    grasp along the belt, most urgent (furthest downstream) first.
 
     `plan_clearing` gives the removals (none if the target can be grasped across the belt). Step k grasps at
-    about now + LEAD_TIME + k * STEP_TIME. Each removal goes to a robot of `roles` that can pick the blocker then:
+    about start + LEAD_TIME + k * STEP_TIME. Each removal goes to a robot of `roles` that can pick the blocker then:
     one that takes it to its own region first, else one that puts it into the buffer (at most `buffer_free` boxes).
     The target goes to a robot whose colors include it and that can pick it at its time. Any robot may remove a
     blocker (Robot 2 with fixed roles takes a colored blocker into the buffer); every box involved must be usable.
+
+    The whole schedule is checked before the first removal (#102). The first target that can be cleared starting
+    now gets the `job`. A target that cannot, but can with a later start (every SEARCH_STEP until it would leave the
+    belt; e.g. a blocker that only Robot 2 reaches, further downstream), goes into `later` with that start time; one
+    that cannot be cleared at any start, or whose neighbours cannot be removed in any order, into `infeasible`.
     """
     usable = _usable(world, first_seen, blocked)
-    now = world.time
+    now, decision = world.time, ClearingDecision()
     candidates = [t for t in tracks if usable(t) and any(t.color in colors for colors in roles.values())]
     for target in sorted(candidates, key=lambda t: -t.position[0]):
         position = target.predict(now)
@@ -142,26 +179,18 @@ def plan_clearing_job(world: World, tracks: list[Track], first_seen: dict[int, f
             continue
         plan = plan_clearing(position, boxes)
         if plan is None:
+            decision.infeasible.append(target.track_id)
             continue
-        steps, in_buffer = [], 0
-        for k, removal in enumerate(plan.removals):
-            box = near[removal.box]
-            at = box.predict(now + LEAD_TIME + k * STEP_TIME)
-            options = [(robot_id, destination(robot_id, box.color)) for robot_id in sorted(roles)]
-            options = sorted([o for o in options if o[1] is not None], key=lambda o: o[1] == BUFFER)
-            for robot_id, region in options:
-                if (region != BUFFER or in_buffer < buffer_free) and can_pick(world.C, robot_id, at):
-                    steps.append(ClearingStep(robot_id, box.track_id, region, removal.axis == "across"))
-                    in_buffer += region == BUFFER
-                    break
-            else:
-                break                                         # this blocker cannot be removed in time
-        if len(steps) < len(plan.removals):
-            continue
-        at = target.predict(now + LEAD_TIME + len(steps) * STEP_TIME)
-        sorter = next((r for r in sorted(roles) if target.color in roles[r] and can_pick(world.C, r, at)), None)
-        if sorter is not None:
-            steps.append(ClearingStep(sorter, target.track_id, DEFAULT_TARGET[target.color],
-                                      plan.target_axis == "across"))
-            return ClearingJob(target.track_id, steps)
-    return None
+        steps = _schedule(world, target, near, plan, roles, buffer_free, now)
+        if steps:
+            decision.job = ClearingJob(target.track_id, steps)
+            return decision
+        start = now + SEARCH_STEP
+        while target.predict(start + LEAD_TIME)[0] < world.conveyor.geometry.x_end:
+            if _schedule(world, target, near, plan, roles, buffer_free, start):
+                decision.later[target.track_id] = start
+                break
+            start += SEARCH_STEP
+        else:
+            decision.infeasible.append(target.track_id)
+    return decision
