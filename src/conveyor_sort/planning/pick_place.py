@@ -21,6 +21,8 @@ MAX_TILT = 10.0   # physics backend: a placed box must be upright within this [d
 DROP_DISTANCE = 0.04   # physics backend: a carried box this far from the gripper centre has been dropped [m]
 REPLAN_DISTANCE = 0.015   # physics backend: the box predicted this far from where the pick aims: re-plan [m]
 MIN_REPLAN_TIME = 0.5     # ... if at least this much time is left before the grasp [s]
+CLEARANCE = 0.02   # physics backend: the arms must stay this far apart while both move [m] (#141)
+MAX_WAIT = 15.0    # ... an arm waits at most this long for the other one to finish its motion [s]
 LOST_TIME = 1.2           # ... a box not seen for this long has left the belt (BotOp: an image every 0.5 s) [s]
 
 
@@ -66,6 +68,7 @@ class PickPlaceTask:
         self.result = PickPlaceResult(False, 0.0, None, None)
         self._world, self._track = world, track
         self._picking, self._update, self._replans = False, None, 0   # physics backend: see observe()
+        self.waits = 0     # physics backend: stages that waited for the other arm, or picks given up for it (#141)
         self._steps = self._run_physical(world, assignment, track) if world.bot is not None else \
             self._run(world, assignment, track)
 
@@ -142,10 +145,31 @@ class PickPlaceTask:
     def _run_physical(self, world: World, assignment: Assignment, track: Track) -> Iterator[bool]:
         C, robot, result = world.C, assignment.robot_id, self.result
 
-        def run(stage: str, plan: Plan, duration: float, carrying: str | None = None) -> Iterator[bool]:
-            """Follow the plan; with `carrying`, stop as soon as that box is no longer at the gripper ("drop")."""
+        others = [r for r in world.fingers if r != robot]
+
+        def too_close(path, duration: float) -> bool:
+            """The other arm moves while this one follows `path` and they come closer than CLEARANCE (#141)."""
+            now = world.time + world._t0
+            return (any(world.arms.moving_until(r) > now for r in others)
+                    and world.arms.clearance(C, robot, path, duration) < CLEARANCE)
+
+        def run(stage: str, plan_fn, duration: float, carrying: str | None = None) -> Iterator[bool]:
+            """Plan the stage (`plan_fn()`, from the current state) and follow the plan; with `carrying`, stop as soon
+            as that box is no longer at the gripper ("drop"). Each arm is planned with the other one static: if the
+            other one moves during this stage and comes closer than CLEARANCE, this arm waits where it is until that
+            motion has ended (at most MAX_WAIT) and plans again (#141)."""
+            plan = plan_fn()
             result.planning_time += plan.planning_time
-            if not plan.feasible:
+            deadline = world.time + MAX_WAIT
+            while plan.feasible and too_close(plan.path, duration):
+                self.waits += 1
+                if world.time > deadline:
+                    break
+                end = max(world.arms.moving_until(r) for r in others) - world._t0
+                yield from wait(min(end, deadline) - world.time + 0.1)
+                plan = plan_fn()
+                result.planning_time += plan.planning_time
+            if not plan.feasible or too_close(plan.path, duration):
                 result.failed_stage = result.failed_stage or stage
                 return False
             for _ in follow_path(world, plan.path, duration, robot):
@@ -184,12 +208,16 @@ class PickPlaceTask:
         def leave(box: str | None) -> Iterator[bool]:
             """Retreat 10 cm up and go home. The box just let go of is no obstacle for the retreat: the open
             fingers may still touch it, and a plan that starts in contact is infeasible (the arm would be stuck)."""
-            with planning_view(world, robot), ignoring(C, box):
-                retreat = plan_lift(C, robot, height=0.1)
+            def retreat():
+                with planning_view(world, robot), ignoring(C, box):
+                    return plan_lift(C, robot, height=0.1)
+
+            def home():
+                with planning_view(world, robot):
+                    return plan_home(C, robot)
+
             if not (yield from run("retreat", retreat, RETREAT_TIME)):
                 return False
-            with planning_view(world, robot):
-                home = plan_home(C, robot)
             return (yield from run("home", home, HOME_TIME))
 
         region = assignment.target_region
@@ -208,6 +236,13 @@ class PickPlaceTask:
             if not pick.feasible:
                 result.failed_stage = "pick"
                 if self._replans:                              # the arm has moved: back home, tried again later
+                    self._picking = False
+                    yield from leave(None)
+                return
+            if too_close(pick.path, assignment.pick_time - world.time):   # the timing is fixed by the moving box:
+                self.waits += 1                                             # no waiting, tried again later (#141)
+                result.failed_stage = "pick"
+                if self._replans:
                     self._picking = False
                     yield from leave(None)
                 return
@@ -237,8 +272,11 @@ class PickPlaceTask:
             yield from leave(box)
             return
         result.box = box
-        with planning_view(world, robot, box):
-            lift = plan_lift(C, robot)
+
+        def lift():
+            with planning_view(world, robot, box):
+                return plan_lift(C, robot)
+
         gripper_z, box_z = gripper.getPosition()[2], C.getFrame(box).getPosition()[2]
         lifted = yield from run("lift", lift, LIFT_TIME)
         if lifted:
@@ -255,11 +293,15 @@ class PickPlaceTask:
             if not slots:
                 result.failed_stage = "full"
             else:
-                with planning_view(world, robot, box):
-                    for slot in slots:       # the first free slot whose place can be planned (Robot 2 into the bin:
-                        place = plan_place(C, robot, box, region, clearance=self.drop, offset=SLOTS[slot])
-                        if place.feasible:   # some slots next to boxes already there could not be planned)
-                            break
+                def place():
+                    nonlocal slot
+                    with planning_view(world, robot, box):
+                        for slot in slots:   # the first free slot whose place can be planned (Robot 2 into the bin:
+                            plan = plan_place(C, robot, box, region, clearance=self.drop, offset=SLOTS[slot])
+                            if plan.feasible:   # some slots next to boxes already there could not be planned)
+                                break
+                    return plan
+
                 placed = yield from run("place", place, PLACE_TIME, carrying=box)
         # release: the box is on its own now (after a failure: back on the belt or wherever it fell)
         yield from let_go(box)

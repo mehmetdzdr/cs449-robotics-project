@@ -57,6 +57,33 @@ class ArmReferences:
                 self._set(r, now, times, waypoints)
         self._send(now)
 
+    def moving_until(self, robot_id: int) -> float:
+        """BotOp time at which the robot's current reference ends (it holds still after that)."""
+        return float(self.plans[robot_id][0][-1])
+
+    def clearance(self, C: ry.Config, robot_id: int, path: np.ndarray, duration: float, samples: int = 12) -> float:
+        """Smallest arm-arm distance [m] if `robot_id` follows `path` (KOMO path, all joints) from now for `duration`
+        seconds while the other robot follows its current reference, both sampled at the same times (#141). Each
+        arm is planned with the other one static: this is the check that the other one really stays out of the way.
+        C is restored."""
+        from conveyor_sort.physics.contacts import arm_proximity
+        now, q0 = self.bot.get_t(), C.getJointState()
+        others = [r for r in self.joints if r != robot_id]
+        steps = np.arange(len(path))
+        closest = float("inf")
+        try:
+            for k in range(samples + 1):
+                s = k / samples
+                q = q0.copy()
+                q[self.joints[robot_id]] = [np.interp(s * (len(path) - 1), steps, path[:, j]) for j in self.joints[robot_id]]
+                for r in others:
+                    q[self.joints[r]] = self._reference(r, now + s * duration)
+                C.setJointState(q)
+                closest = min(closest, arm_proximity(C)[0])
+        finally:
+            C.setJointState(q0)
+        return closest
+
     def set_fingers(self, robot_id: int, target: float, duration: float) -> None:
         """Move one robot's finger to `target` in `duration` seconds; its arm holds its current reference."""
         now = self.bot.get_t()

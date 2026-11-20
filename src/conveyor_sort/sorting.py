@@ -42,6 +42,7 @@ class SortingStats:
     clear_and_sort: list[bool] = field(default_factory=list)   # one entry per attempt: wanted box sorted after the gray one was removed
     min_arm_distance: float = float("inf")   # physics backend: closest approach of the two arms [m] (inf: never within 0.2 m)
     arm_contacts: list[tuple[float, str, str]] = field(default_factory=list)   # physics backend: (time, frame, frame)
+    arm_waits: int = 0         # physics backend: an arm waited for the other one to finish a motion (#141)
 
     @property
     def sorted_correctly(self) -> int:
@@ -109,6 +110,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
     def finish(robot_id: int) -> None:
         task, track = tasks.pop(robot_id)
         result, region = task.result, task.assignment.target_region
+        stats.arm_waits += task.waits
         if result.failed_stage == "pick" and track.track_id not in pair.values():   # no plan from here (e.g. box just
             blocked[track.track_id] = world.time + RETRY_DELAY   # entering the workspace): no time was used, try again later
             attempts[track.track_id] -= 1
