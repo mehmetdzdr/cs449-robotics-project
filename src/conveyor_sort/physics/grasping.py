@@ -1,5 +1,5 @@
 """Physical pick on the BotOp backend: squeeze a box between the fingers, check the grasp, plan while holding."""
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import numpy as np
 
@@ -53,7 +53,10 @@ def planning_view(world, robot_id: int, box: str | None = None):
     jammed behind it. A free box would not move with the gripper in the planner. Only C is
     changed, and it is restored afterwards (the simulation never sees it: the next sync overwrites the box pose
     and the joints anyway).
+
+    While the other arm stands still, only `robot_id`'s arm is planned (`planning.pick.own_arm_only`, #141).
     """
+    from conveyor_sort.planning.pick import own_arm_only
     C = world.C
     q = C.getJointState()
     view = q.copy()
@@ -67,8 +70,11 @@ def planning_view(world, robot_id: int, box: str | None = None):
     frame = C.getFrame(box) if box else None
     if frame is not None:
         frame.setParent(C.getFrame(f"{ROBOT_PREFIX[robot_id]}gripper"), True)
+    now = world.arms.bot.get_t()
+    static = all(world.arms.moving_until(r) <= now for r in world.fingers if r != robot_id)
     try:
-        yield
+        with own_arm_only(C) if static else nullcontext():
+            yield
     finally:
         if frame is not None:
             frame.unLink()
