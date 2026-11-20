@@ -10,23 +10,27 @@ from conveyor_sort.physics.grasping import (SLIP_TOLERANCE, SQUEEZE_SETTLE, SQUE
                                             ignoring, planning_view)
 from conveyor_sort.planning.execute import follow_path, grasp, release
 from conveyor_sort.planning.pick import Plan, plan_home, plan_lift, plan_moving_pick, plan_place
-from conveyor_sort.sim.regions import SLOTS, free_slot, free_slots, region_contains, slot_position
+from conveyor_sort.sim.conveyor import BOX_SIZE
+from conveyor_sort.sim.regions import REGIONS, SLOTS, free_slot, free_slots, region_contains, slot_position
 from conveyor_sort.sim.scene import ROBOT_PREFIX
 from conveyor_sort.sim.world import World
 
 # durations of the stages after the grasp [s]
 LIFT_TIME, PLACE_TIME, RETREAT_TIME, HOME_TIME = 1.0, 3.0, 1.0, 2.0
 MAX_TILT = 10.0   # physics backend: a placed box must be upright within this [deg]
+DROP_DISTANCE = 0.04   # physics backend: a carried box this far from the gripper centre has been dropped [m]
 
 
 @dataclass
 class PickPlaceResult:
     success: bool
     planning_time: float            # summed KOMO solve time of all stages [s]
-    failed_stage: str | None        # "pick", "grasp", "slip", "lift", "place", "release", "retreat", "home", or None
+    failed_stage: str | None        # "pick", "grasp", "slip", "lift", "place", "drop", "release", "retreat", "home",
+                                    # "full", or None on success
     box: str | None                 # frame name of the grasped box
     place_error: float | None = None   # physics backend: placed box centre to its slot centre in xy [m]
     tilt: float | None = None          # physics backend: placed box's tilt from upright [deg]
+    dropped_on: str | None = None      # physics backend, after "slip" or "drop": "belt", "table", "box", "region", "floor"
 
 
 class PickPlaceTask:
@@ -106,14 +110,33 @@ class PickPlaceTask:
     def _run_physical(self, world: World, assignment: Assignment, track: Track) -> Iterator[bool]:
         C, robot, result = world.C, assignment.robot_id, self.result
 
-        def run(stage: str, plan: Plan, duration: float) -> Iterator[bool]:
+        def run(stage: str, plan: Plan, duration: float, carrying: str | None = None) -> Iterator[bool]:
+            """Follow the plan; with `carrying`, stop as soon as that box is no longer at the gripper ("drop")."""
             result.planning_time += plan.planning_time
             if not plan.feasible:
                 result.failed_stage = result.failed_stage or stage
                 return False
             for _ in follow_path(world, plan.path, duration, robot):
+                if carrying is not None and np.linalg.norm(C.getFrame(carrying).getPosition()
+                                                           - gripper.getPosition()) > DROP_DISTANCE:
+                    result.failed_stage = result.failed_stage or "drop"
+                    return False
                 yield True
             return True
+
+        def landed(box: str) -> str:
+            """Where a box that was let go of has come to rest: "belt", "region" (any), "box" (on top of another
+            box), "table" or "floor" (seen with friction 0.05: the squeeze shot the box off the table)."""
+            position = C.getFrame(box).getPosition()
+            if box in world.conveyor.on_belt():
+                return "belt"
+            if position[2] < 0.3:                                             # the table top is at 0.6 m
+                return "floor"
+            if position[2] > world.conveyor.geometry.z_top + BOX_SIZE:      # higher than a box on the belt or table
+                return "box"
+            return "region" if any(region_contains(C, r, position) for r in REGIONS) else "table"
+
+        gripper = C.getFrame(f"{ROBOT_PREFIX[robot]}gripper")
 
         def wait(duration: float) -> Iterator[bool]:
             end = world.time + duration
@@ -159,7 +182,6 @@ class PickPlaceTask:
         result.box = box
         with planning_view(world, robot, box):
             lift = plan_lift(C, robot)
-        gripper = C.getFrame(f"{ROBOT_PREFIX[robot]}gripper")
         gripper_z, box_z = gripper.getPosition()[2], C.getFrame(box).getPosition()[2]
         lifted = yield from run("lift", lift, LIFT_TIME)
         if lifted:
@@ -181,10 +203,13 @@ class PickPlaceTask:
                         place = plan_place(C, robot, box, region, clearance=self.drop, offset=SLOTS[slot])
                         if place.feasible:   # some slots next to boxes already there could not be planned)
                             break
-                placed = yield from run("place", place, PLACE_TIME)
+                placed = yield from run("place", place, PLACE_TIME, carrying=box)
         # release: the box is on its own now (after a failure: back on the belt or wherever it fell)
         yield from let_go(box)
-        if not ((yield from leave(box)) and placed):
+        left = yield from leave(box)
+        if result.failed_stage in ("slip", "drop"):
+            result.dropped_on = landed(box)
+        if not (left and placed):
             return
         frame = C.getFrame(box)
         result.place_error = float(np.linalg.norm(frame.getPosition()[:2] - slot_position(C, region, slot)))

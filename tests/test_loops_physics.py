@@ -42,7 +42,8 @@ def test_single_robot_sorts_every_box_with_ground_truth(physics_world):
     stats = run_single_robot(world, get_detector("gt", world), duration=65.0)   # kinematic: 60 s; a physical pick and
     print(f"{stats.sorted_correctly} of {len(stats.events)} sorted, {stats.missed} missed, "
           f"failed stages {[e.failed_stage for e in stats.events if not e.success]}")
-    assert len(stats.events) == 5 and stats.sorted_correctly == 5     # place takes about 2 s longer (squeeze, settling)
+    # the box in the arm when the run ends is finished too (#105): 5 or 6 events (kinematic: 5)
+    assert stats.sorted_correctly == len(stats.events) >= 5     # pick and place takes about 2 s longer (squeeze)
     assert stats.failed == 0 and stats.missed == 0
 
 
@@ -50,7 +51,7 @@ def test_single_robot_sorts_with_hsv_vision_on_botop_images(physics_world):
     world = physics_world(speed=0.1, spacing=1.2, color_weights=COLORED, seed=1)
     stats = run_single_robot(world, get_detector("hsv", world), duration=16.0)    # one box (kinematic: 13 s; the
     print(f"{stats.sorted_correctly} of {len(stats.events)} sorted")                # images arrive 2 per s)
-    assert len(stats.events) == 1 and stats.sorted_correctly == 1
+    assert stats.sorted_correctly == len(stats.events) >= 1     # 1 or 2: a task running at the end is finished (#105)
 
 
 def test_two_robots_with_fixed_roles(physics_world):

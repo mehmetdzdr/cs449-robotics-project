@@ -1,4 +1,5 @@
 """Autonomous sorting loop: detect, track, allocate boxes to free robots, pick and place them, repeat."""
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -13,6 +14,10 @@ from conveyor_sort.sim.regions import DEFAULT_TARGET, region_contains
 from conveyor_sort.sim.world import World
 
 RETRY_DELAY = 0.5      # a box whose pick could not be planned is tried again after this time [s]
+MAX_ATTEMPTS = 3       # a box back on the belt after a failed grasp, slip or drop is tried again, this often in all
+RETRY_STAGES = ("grasp", "slip", "lift", "drop")   # failures after which the box may lie on the belt again
+FINISH_TIMEOUT = 20.0  # physics backend: at the end of a run, running tasks get this long to finish [s]
+INHERIT_X, INHERIT_Y = 0.15, 0.06   # a new track this close to where a failed box is expected takes over its count [m]
 
 
 @dataclass
@@ -25,6 +30,7 @@ class SortEvent:
     failed_stage: str | None
     planning_time: float
     robot_id: int = 1
+    dropped_on: str | None = None   # physics backend: where a slipped / dropped box came to rest
 
 
 @dataclass
@@ -45,6 +51,16 @@ class SortingStats:
     def failed(self) -> int:
         return sum(not e.success for e in self.events)
 
+    @property
+    def failures(self) -> Counter:
+        """Failed attempts per stage ("grasp", "slip", "drop", "place", ...)."""
+        return Counter(e.failed_stage for e in self.events if not e.success)
+
+    @property
+    def drops(self) -> Counter:
+        """Where slipped and dropped boxes came to rest ("belt", "table", "box", "region")."""
+        return Counter(e.dropped_on for e in self.events if e.dropped_on)
+
 
 def run_robots(world: World, detect: Callable[[], list[Detection]], duration: float,
                roles: dict[int, tuple[BoxColor, ...]] = FIXED_ROLES,
@@ -56,6 +72,11 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
     it first and Robot 1 then sorts the box (needs both robots).
 
     `detect()` returns the detections of the current camera frame (ground truth or a vision detector).
+
+    Recovery: a box whose attempt failed after the arm moved (`RETRY_STAGES`) is tried again RETRY_DELAY later
+    if it is back on the belt and still reachable, up to MAX_ATTEMPTS attempts. `SortingStats.failures` counts
+    the failures per stage, `SortingStats.drops` where slipped or dropped boxes came to rest. Physics backend:
+    tasks still running at the end are finished (at most FINISH_TIMEOUT more), so no arm keeps a box.
     """
     tracker = Tracker()
     stats = SortingStats()
@@ -64,6 +85,21 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
     tracks: list[Track] = []
     last_placed: dict[str, str] = {}       # region -> box lying in it
     tasks: dict[int, tuple[PickPlaceTask, Track]] = {}
+    attempts: Counter = Counter()          # track id -> pick-and-place tasks started for it
+    failed_boxes: list = []                # (pick position, pick time, attempts) of boxes that may be back on the belt
+
+    def inherit(track: Track) -> None:
+        """A new track where a failed box is expected (its pick position moved on by the belt since then, give or
+        take the time it was held) takes over that box's attempt count, so a box is not tried endlessly."""
+        speed = world.conveyor.config.speed
+        for i, (position, pick_time, count) in enumerate(failed_boxes):
+            expected_x = position[0] + speed * (world.time - pick_time)
+            if abs(track.position[0] - expected_x) < INHERIT_X and abs(track.position[1] - position[1]) < INHERIT_Y:
+                attempts[track.track_id] = max(attempts[track.track_id], count)
+                if count >= MAX_ATTEMPTS:
+                    blocked[track.track_id] = float("inf")
+                del failed_boxes[i]
+                return
     scheduled: dict[int, tuple[float, Assignment]] = {}   # clear-and-sort: robot -> (time to start moving, assignment)
     pair: dict = {}                        # the running clear-and-sort: track ids "gray" and "wanted", "gray_ok"
     log = CoordinationLog()
@@ -75,14 +111,21 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         result, region = task.result, task.assignment.target_region
         if result.failed_stage == "pick" and track.track_id not in pair.values():   # no plan from here (e.g. box just
             blocked[track.track_id] = world.time + RETRY_DELAY   # entering the workspace): no time was used, try again later
+            attempts[track.track_id] -= 1
             return
+        if result.failed_stage in RETRY_STAGES and track.track_id not in pair.values():
+            if attempts[track.track_id] < MAX_ATTEMPTS:
+                blocked[track.track_id] = world.time + RETRY_DELAY   # picked again if it is (still or again) on the belt
+            # while it was held the box was not seen and its track may have been dropped: a new track where the box
+            # fell back carries on the count (see `inherit`)
+            failed_boxes.append((task.assignment.pick_position, task.assignment.pick_time, attempts[track.track_id]))
         correct = (result.success and DEFAULT_TARGET[world.conveyor.colors[result.box]] == region
                    and region_contains(world.C, region, world.C.getFrame(result.box).getPosition()))
         if result.success:
             if world.bot is None:              # physics: regions hold several boxes (slots, #93)
                 last_placed[region] = result.box
         stats.events.append(SortEvent(world.time, track.color, region, result.success, correct,
-                                      result.failed_stage, result.planning_time, robot_id))
+                                      result.failed_stage, result.planning_time, robot_id, result.dropped_on))
         if track.track_id == pair.get("gray"):
             pair["gray_ok"] = result.success
             if not result.success and scheduled.pop(1, None):    # blocker still there: Robot 1 does not start
@@ -97,6 +140,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         if assignment.target_region in last_placed:   # regions are emptied (box collected) before the next box arrives
             world.conveyor.remove(last_placed.pop(assignment.target_region))
         tasks[assignment.robot_id] = PickPlaceTask(world, assignment, track, across_belt), track
+        attempts[assignment.track_id] += 1
 
     while world.time < end_time:
         moved: set[int] = set()            # robots that have made their move for this simulation step
@@ -144,9 +188,17 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
             stats.arm_contacts += [(world.time, a, b) for a, b, _ in contacts]
         tracks[:] = tracker.update(detect(), world.time)
         for track in tracks:
+            if track.track_id not in first_seen and failed_boxes:
+                inherit(track)
             first_seen.setdefault(track.track_id, world.time)
         if on_step:
             on_step(world)
+    finish_end = world.time + FINISH_TIMEOUT
+    while world.bot is not None and tasks and world.time < finish_end:   # no arm keeps a box after the run
+        for robot_id in list(tasks):
+            if not tasks[robot_id][0].advance():
+                finish(robot_id)
+        world.step()
     stats.missed = world.conveyor.missed - missed_before
     stats.conflicts = len(log.conflicts)
     return stats
