@@ -66,3 +66,12 @@ def test_two_robots_with_fixed_roles_work_at_the_same_time():
 
     single = World(config)                                               # same boxes, Robot 1 alone: the gray ones leave the belt
     assert run_single_robot(single, GroundTruthDetector(single).detect, duration=60.0).missed == 3
+
+
+def test_clearing_steps_call_the_start_function():
+    """A loop variable named `start` in run_clearing made `start` local there: every physics clearing step failed
+    with UnboundLocalError (the physics runs are slow tests; this checks the code itself)."""
+    import conveyor_sort.sorting as sorting
+    nested = {c.co_name: c for c in sorting.run_robots.__code__.co_consts if hasattr(c, "co_name")}
+    assert "start" in nested and "start" in nested["run_clearing"].co_freevars
+    assert "start" not in nested["run_clearing"].co_varnames
