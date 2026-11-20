@@ -6,6 +6,8 @@ import robotic as ry
 
 from conveyor_sort.sim.scene import TOP_CAMERA
 
+IMAGE_LATENCY = 0.05    # BotOp: a new camera image shows the scene about this long before it is first returned [s]
+
 
 @dataclass
 class Observation:
@@ -24,9 +26,24 @@ class Observation:
 
 
 class Camera:
-    def __init__(self, C: ry.Config, frame_name: str = TOP_CAMERA):
+    """With `bot` (physics backend, `World.bot`) rgb, depth and intrinsics come from BotOp's simulated camera
+    (`bot.getImageAndDepth`); the ground-truth segmentation is still rendered by a `CameraView` of C, which
+    holds the simulated poses after every sync.
+
+    BotOp's simulation renders a new camera image only every 0.35 to 0.5 s (software rendering under xvfb), and
+    `getImageAndDepth` returns the latest one. `capture` notices a new image (call it every step) and stamps the
+    observation with the capture time minus IMAGE_LATENCY; repeated images keep their time. The true image time
+    is not available: the stamp is off by about 0.03 to 0.07 s (standard deviation, measured), i.e. 3 to 14 mm
+    along a belt at 0.1 to 0.2 m/s. The segmentation is of the current state, so it matches the image only on a
+    stopped belt.
+    """
+
+    def __init__(self, C: ry.Config, frame_name: str = TOP_CAMERA, bot: ry.BotOp | None = None):
         self.C = C
         self.frame_name = frame_name
+        self.bot = bot
+        self._last_rgb: np.ndarray | None = None
+        self._image_time = 0.0
         self._view = None
         self._frame_names: list[str] = []
 
@@ -40,12 +57,19 @@ class Camera:
             self._frame_names = names
         rgb, depth = self._view.computeImageAndDepth(self.C)
         segmentation = self._view.computeSegmentationID()
+        fxycxy = self._view.getFxycxy()
+        if self.bot is not None:
+            rgb, depth = self.bot.getImageAndDepth(self.frame_name)
+            fxycxy = np.asarray(self.bot.getCameraFxycxy(self.frame_name))
+            if self._last_rgb is None or not np.array_equal(rgb, self._last_rgb):   # a new image
+                self._image_time, self._last_rgb = timestamp - IMAGE_LATENCY, rgb
+            timestamp = self._image_time
         frame = self.C.getFrame(self.frame_name)
         return Observation(
             rgb=rgb,
             depth=depth,
             segmentation=segmentation,
-            fxycxy=self._view.getFxycxy(),
+            fxycxy=fxycxy,
             cam_position=frame.getPosition(),
             cam_rotation=frame.getRotationMatrix(),
             timestamp=timestamp,
