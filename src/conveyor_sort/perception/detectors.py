@@ -29,13 +29,13 @@ def get_detector(name: str, world: World, camera: Camera | None = None) -> Calla
         detector = SamDetector(belt, "mobile_sam" if name == "sam" else "sam_b")
     else:
         raise ValueError(f"unknown detector '{name}': choose one of {', '.join(DETECTORS)}")
-    camera = camera or Camera(world.C, bot=world.bot)
+    camera = camera or Camera(world.C, bot=world.bot, segmentation=False)
     last = [None]
 
     def detect() -> list[Detection]:
         obs = camera.capture(world.time)
-        if camera.bot is not None and obs.timestamp == last[0]:   # BotOp: the same image as before (see Camera)
-            return []
+        if camera.bot is not None and (obs.timestamp == last[0] or obs.timestamp == float("-inf")):   # BotOp: the
+            return []                                     # same image as before, or the first one (unknown time)
         last[0] = obs.timestamp
         return detector.detect(obs)
     return detect

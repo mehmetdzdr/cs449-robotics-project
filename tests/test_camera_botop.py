@@ -78,15 +78,17 @@ def test_image_timestamps_on_the_moving_belt(physics_world, speed):
         steps += 1
         detections = detect()
         new_images += bool(detections)
-        for d in detections:
+        for d in detections:      # not at the belt end: those boxes are taken out, the image may still show them
+            if d.position[0] > world.conveyor.geometry.x_end - 0.1:
+                continue
             truth = {b: world.C.getFrame(b).getPosition() - [speed * (world.time - d.timestamp), 0, 0] for b in boxes}
             errors.append(min(np.linalg.norm(p - d.position) for p in truth.values()))
     errors = np.array(errors)
     print(f"{speed} m/s: {new_images} new images in {world.time - t0:.1f} s, error at the image time {errors.mean() * 1000:.1f} mm mean, "
           f"{errors.max() * 1000:.1f} mm max")
     assert 0.3 <= (world.time - t0) / new_images <= 0.6     # a new image every 0.35 to 0.5 s; repeats are not reported
-    # the image time is only estimated (see Camera): measured 0.03 to 0.07 s off (standard deviation)
-    assert errors.mean() < 0.1 * speed + 0.003 and errors.max() < 0.25 * speed + 0.005
+    # the image time is only estimated (see Camera)
+    assert errors.mean() < 0.004 and errors.max() < 0.015
 
 
 def test_hsv_detector_timing_is_unchanged(physics_world):
