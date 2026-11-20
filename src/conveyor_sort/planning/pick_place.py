@@ -7,7 +7,7 @@ import numpy as np
 from conveyor_sort.interfaces import Assignment, Track
 from conveyor_sort.physics.friction_grasp import FINGER_OPEN, FINGER_SQUEEZE
 from conveyor_sort.physics.grasping import (SLIP_TOLERANCE, SQUEEZE_SETTLE, SQUEEZE_TIME, box_at_gripper, holding,
-                                            planning_view)
+                                            ignoring, planning_view)
 from conveyor_sort.planning.execute import follow_path, grasp, release
 from conveyor_sort.planning.pick import Plan, plan_home, plan_lift, plan_moving_pick, plan_place
 from conveyor_sort.sim.regions import region_contains
@@ -119,8 +119,27 @@ class PickPlaceTask:
             while world.time < end - 1e-6:
                 yield True
 
+        def let_go(box: str | None) -> Iterator[bool]:
+            world.arms.set_fingers(robot, FINGER_OPEN, SQUEEZE_TIME)
+            if box is not None:
+                world.conveyor.unhold(box)
+            yield from wait(SQUEEZE_TIME + SQUEEZE_SETTLE)
+
+        def leave(box: str | None) -> Iterator[bool]:
+            """Retreat 10 cm up and go home. The box just let go of is no obstacle for the retreat: the open
+            fingers may still touch it, and a plan that starts in contact is infeasible (the arm would be stuck)."""
+            with planning_view(world, robot), ignoring(C, box):
+                retreat = plan_lift(C, robot, height=0.1)
+            if not (yield from run("retreat", retreat, RETREAT_TIME)):
+                return False
+            with planning_view(world, robot):
+                home = plan_home(C, robot)
+            return (yield from run("home", home, HOME_TIME))
+
         world.arms.finger_target[robot] = FINGER_OPEN         # the pick path opens the fingers on the way
-        if not (yield from run("pick", self._plan_pick(world, assignment, track), assignment.pick_time - world.time)):
+        with planning_view(world, robot):
+            pick = self._plan_pick(world, assignment, track)
+        if not (yield from run("pick", pick, assignment.pick_time - world.time)):
             return
         box = box_at_gripper(world, robot)
         if box is not None:
@@ -129,41 +148,33 @@ class PickPlaceTask:
         yield from wait(SQUEEZE_TIME + SQUEEZE_SETTLE)
         if box is None or not holding(world, robot):
             result.failed_stage = "grasp"
-            if box is not None:
-                world.conveyor.unhold(box)
-            world.arms.set_fingers(robot, FINGER_OPEN, SQUEEZE_TIME)
-            yield from wait(SQUEEZE_TIME)
-            yield from run("home", plan_home(C, robot), HOME_TIME)
+            yield from let_go(box)
+            yield from leave(box)
             return
         result.box = box
         with planning_view(world, robot, box):
             lift = plan_lift(C, robot)
         gripper = C.getFrame(f"{ROBOT_PREFIX[robot]}gripper")
         gripper_z, box_z = gripper.getPosition()[2], C.getFrame(box).getPosition()[2]
-        if not (yield from run("lift", lift, LIFT_TIME)):
-            return
-        yield from wait(SQUEEZE_SETTLE)
-        if C.getFrame(box).getPosition()[2] - box_z < gripper.getPosition()[2] - gripper_z - SLIP_TOLERANCE:
-            result.failed_stage = "slip"
-            world.conveyor.unhold(box)
-            return
-        if not holding(world, robot):
-            result.failed_stage = "slip"
-            return
-        if self.pick_only:
+        lifted = yield from run("lift", lift, LIFT_TIME)
+        if lifted:
+            yield from wait(SQUEEZE_SETTLE)
+            risen = C.getFrame(box).getPosition()[2] - box_z >= gripper.getPosition()[2] - gripper_z - SLIP_TOLERANCE
+            if not (risen and holding(world, robot)):
+                result.failed_stage = "slip"
+        if result.failed_stage is None and self.pick_only:
             result.success = True
             return
+        placed = False
+        if result.failed_stage is None:
+            with planning_view(world, robot, box):
+                place = plan_place(C, robot, box, assignment.target_region, clearance=self.drop)
+            placed = yield from run("place", place, PLACE_TIME)
+        # release: the box is on its own now (after a failure: back on the belt or wherever it fell)
+        yield from let_go(box)
+        if not ((yield from leave(box)) and placed):
+            return
         region = assignment.target_region
-        with planning_view(world, robot, box):
-            place = plan_place(C, robot, box, region, clearance=self.drop)
-        if not (yield from run("place", place, PLACE_TIME)):
-            return
-        world.arms.set_fingers(robot, FINGER_OPEN, SQUEEZE_TIME)       # release: the box is on its own now
-        world.conveyor.unhold(box)
-        yield from wait(SQUEEZE_TIME + SQUEEZE_SETTLE)
-        if not ((yield from run("retreat", plan_lift(C, robot, height=0.1), RETREAT_TIME))
-                and (yield from run("home", plan_home(C, robot), HOME_TIME))):
-            return
         frame = C.getFrame(box)
         result.place_error = float(np.linalg.norm(frame.getPosition()[:2] - C.getFrame(region).getPosition()[:2]))
         result.tilt = float(np.degrees(np.arccos(np.clip(frame.getRotationMatrix()[2, 2], -1.0, 1.0))))

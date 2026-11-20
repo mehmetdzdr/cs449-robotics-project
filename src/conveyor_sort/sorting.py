@@ -6,6 +6,7 @@ from conveyor_sort.coordination.allocation import (COLORED, FIXED_ROLES, LEAD_TI
                                                     uses_shared_area)
 from conveyor_sort.coordination.clear_and_sort import plan_clear_and_sort
 from conveyor_sort.interfaces import Assignment, BoxColor, Detection, Track
+from conveyor_sort.physics.contacts import arm_proximity
 from conveyor_sort.planning.pick_place import PickPlaceTask
 from conveyor_sort.prediction.tracker import Tracker
 from conveyor_sort.sim.regions import DEFAULT_TARGET, region_contains
@@ -33,6 +34,8 @@ class SortingStats:
     conflicts: int = 0         # (robot, box) pairs refused at least once because the other robot held the shared area
     waiting_time: float = 0.0  # robot time spent idle only because the shared area was occupied [s]
     clear_and_sort: list[bool] = field(default_factory=list)   # one entry per attempt: wanted box sorted after the gray one was removed
+    min_arm_distance: float = float("inf")   # physics backend: closest approach of the two arms [m] (inf: never within 0.2 m)
+    arm_contacts: list[tuple[float, str, str]] = field(default_factory=list)   # physics backend: (time, frame, frame)
 
     @property
     def sorted_correctly(self) -> int:
@@ -134,6 +137,10 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
                     finish(robot_id)
         stats.waiting_time += world.dt * len(log.waiting - set(tasks))
         world.step()
+        if world.bot is not None:         # arm-arm contacts at the simulated poses (see physics/contacts.py)
+            distance, contacts = arm_proximity(world.C)
+            stats.min_arm_distance = min(stats.min_arm_distance, distance)
+            stats.arm_contacts += [(world.time, a, b) for a, b, _ in contacts]
         tracks[:] = tracker.update(detect(), world.time)
         for track in tracks:
             first_seen.setdefault(track.track_id, world.time)

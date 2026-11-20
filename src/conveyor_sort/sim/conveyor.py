@@ -6,8 +6,9 @@ Two backends:
   simulation. They must all exist before the simulation starts (a body added later crashes `bot.sync`), so a
   pool of `ConveyorConfig.pool` boxes waits on the ground out of view and a spawn moves the next one to the belt start.
   The belt drives every box resting on its surface by `speed * dt` per step (`bot.cheat_setFramePose`); a box
-  lifted off the belt or held by a gripper (`hold`) is never written to, so it moves by physics only. A box
-  driven past the belt end tips over the edge, falls onto the table and is counted as missed.
+  lifted off the belt or held by a gripper (`hold`) is never written to, so it moves by physics only; a box
+  behind it in the same lane jams (stops 2 mm before it) instead of being moved into it. A box whose centre
+  passes the belt end is counted as missed and taken out (some tip over the edge, some hang on it).
 """
 from dataclasses import dataclass, field
 
@@ -59,6 +60,7 @@ class ConveyorConfig:
 PAIR_GAP = 0.08   # distance between the two boxes of a blocked pair [m]: the gray one is in the way of a grasp
 BOX_MASS = 0.1    # physics backend [kg]
 ON_BELT_TOL = 0.01      # physics backend: a box is on the belt if its centre is within this of the resting height [m]
+JAM_GAP = 0.002         # physics backend: a box jammed behind one that is not driven stops this far from it [m]
 
 
 def _storage_position(index: int) -> list[float]:
@@ -178,16 +180,25 @@ class Conveyor:
         """Advance the belt by dt: move boxes, drop the ones past the end, spawn new ones by spacing."""
         advance = self.config.speed * dt
         if self.physics:
-            for name in list(self.colors):    # fell off the belt end (onto the table beyond it)
-                x, _, z = self.C.getFrame(name).getPosition()
-                if x > self.geometry.x_end and z < self.geometry.z_top:
+            for name in list(self.colors):    # centre past the belt end: falls off (or hangs on the edge, pushed
+                x, _, z = self.C.getFrame(name).getPosition()          # into by the box behind it): missed
+                if x > self.geometry.x_end and z < self.geometry.z_top + BOX_SIZE and name not in self.held:
                     self.remove(name)
                     self.missed += 1
             # front box first: the simulation keeps stepping between two pose writes, and a box moved into
             # the one in front of it would push it away
-            for name in sorted(self.on_belt(), key=lambda n: -self.C.getFrame(n).getPosition()[0]):
+            driven = self.on_belt()
+            g = self.geometry
+            stops = [self.C.getFrame(n).getPosition() for n in self.colors if n not in driven]
+            stops = [p for p in stops if abs(p[2] - g.z_top - BOX_SIZE / 2) < BOX_SIZE]   # at belt height
+            for name in sorted(driven, key=lambda n: -self.C.getFrame(n).getPosition()[0]):
                 frame = self.C.getFrame(name)
-                self._set_pose(name, frame.getPosition() + [advance, 0, 0], frame.getQuaternion())
+                position = frame.getPosition()
+                x = position[0] + advance
+                for p in stops:   # jam behind a box that is not driven (held by a gripper, or tipped over)
+                    if abs(p[1] - position[1]) < BOX_SIZE and position[0] < p[0] < x + BOX_SIZE:
+                        x = max(position[0], min(x, p[0] - BOX_SIZE - JAM_GAP))
+                self._set_pose(name, [x, position[1], position[2]], frame.getQuaternion())
         else:
             for name in self.on_belt():
                 frame = self.C.getFrame(name)
