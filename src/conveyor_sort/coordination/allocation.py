@@ -15,10 +15,10 @@ PICK_X = {1: (-1.1, 0.2), 2: (0.4, 1.1)}   # part of the belt (x) where each rob
 # The fingers close along the belt: a neighbour closer than BLOCK_X in front of or behind a box, in the same lane
 # (lateral offset below BLOCK_Y), is hit by them (measured: hit at 0.10 m, free at 0.12 m). Such a box is not picked.
 BLOCK_X, BLOCK_Y = 0.11, 0.06
-# Shared area: the belt section where the arms can meet, and region B. Each arm plans with the other one
+# Shared area: the belt section where the arms can meet, region B and the buffer. Each arm plans with the other one
 # static, so two arms working there at the same time collide. Only one robot may work in it at a time.
 SHARED_X = (-0.3, 0.4)
-SHARED_REGION = "region_B"
+SHARED_REGIONS = ("region_B", "buffer")
 
 COLORED = (BoxColor.RED, BoxColor.GREEN, BoxColor.BLUE)
 FIXED_ROLES = {1: COLORED, 2: (BoxColor.GRAY,)}                    # Robot 1 sorts, Robot 2 removes gray boxes
@@ -26,7 +26,7 @@ SHARED_ROLES = {1: COLORED, 2: (BoxColor.GRAY, BoxColor.GREEN)}    # region B is
 
 
 def uses_shared_area(pick_x: float, region: str) -> bool:
-    return region == SHARED_REGION or SHARED_X[0] < pick_x < SHARED_X[1]
+    return region in SHARED_REGIONS or SHARED_X[0] < pick_x < SHARED_X[1]
 
 
 def max_track_gap(world: World) -> float:

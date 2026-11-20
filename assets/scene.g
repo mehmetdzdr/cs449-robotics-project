@@ -26,3 +26,7 @@ region_A: { X: [-0.85, -0.40, 0.601], shape: box, size: [.2, .2, .002], color: [
 region_B: { X: [ 0.00, -0.40, 0.601], shape: box, size: [.2, .2, .002], color: [.85, 1., .85] }
 region_C: { X: [-0.85, -0.12, 0.601], shape: box, size: [.2, .2, .002], color: [.85, .85, 1.] }
 bin_gray: { X: [ 0.85, -0.40, 0.601], shape: box, size: [.2, .2, .002], color: [.8, .8, .8] }
+
+# buffer (#101): reachable by both robots, between them and the belt. Robot 1 puts a blocker here that it cannot
+# take to its own region (a gray box); the robot that can takes it on from here.
+buffer: { X: [ 0.00, -0.13, 0.601], shape: box, size: [.2, .2, .002], color: [.95, .95, .8] }

@@ -11,7 +11,8 @@ from conveyor_sort.physics.grasping import (SLIP_TOLERANCE, SQUEEZE_SETTLE, SQUE
 from conveyor_sort.planning.execute import follow_path, grasp, release
 from conveyor_sort.planning.pick import Plan, plan_home, plan_lift, plan_moving_pick, plan_place
 from conveyor_sort.sim.conveyor import BOX_SIZE
-from conveyor_sort.sim.regions import REGIONS, SLOTS, free_slot, free_slots, region_contains, slot_position
+from conveyor_sort.sim.regions import (BUFFER, REGIONS, SLOTS, free_slot, free_slots, region_contains,
+                                       slot_position)
 from conveyor_sort.sim.scene import ROBOT_PREFIX
 from conveyor_sort.sim.world import World
 
@@ -56,15 +57,17 @@ class PickPlaceTask:
     while the arm retreats and goes home. `result.place_error` (box centre to slot centre in xy) and
     `result.tilt` are measured at the end; failed stage "release": the box is not upright (tilt >= MAX_TILT) or
     not inside the region; "full": every slot is taken (checked before the arm moves). `pick_only=True` ends
-    after the lift (success = the box is held).
+    after the lift (success = the box is held). `box`: the box to pick when it is not on the belt (a box in the
+    buffer, #101; `track` then stands still where it lies).
     """
 
     def __init__(self, world: World, assignment: Assignment, track: Track, across_belt: bool = False,
-                 pick_only: bool = False, drop: float = 0.0):
+                 pick_only: bool = False, drop: float = 0.0, box: str | None = None):
         self.assignment = assignment
         self.across_belt = across_belt     # grasp on the box faces at -y / +y (see plan_moving_pick)
         self.pick_only = pick_only         # physics backend: end after the lift (success = the box is held)
         self.drop = drop                   # physics backend: release the box this much higher than resting [m]
+        self.box = box                     # physics backend: pick this box (not on the belt)
         self.result = PickPlaceResult(False, 0.0, None, None)
         self._world, self._track = world, track
         self._picking, self._update, self._replans = False, None, 0   # physics backend: see observe()
@@ -190,7 +193,7 @@ class PickPlaceTask:
                 return "floor"
             if position[2] > world.conveyor.geometry.z_top + BOX_SIZE:      # higher than a box on the belt or table
                 return "box"
-            return "region" if any(region_contains(C, r, position) for r in REGIONS) else "table"
+            return "region" if any(region_contains(C, r, position) for r in REGIONS + [BUFFER]) else "table"
 
         gripper = C.getFrame(f"{ROBOT_PREFIX[robot]}gripper")
 
@@ -261,7 +264,7 @@ class PickPlaceTask:
                 return
             track, self._replans = update, self._replans + 1   # displaced: re-plan from where the arm is now
         self._picking = False
-        box = box_at_gripper(world, robot)
+        box = box_at_gripper(world, robot, None if self.box is None else [self.box])
         if box is not None:
             world.conveyor.hold(box)
         world.arms.set_fingers(robot, FINGER_SQUEEZE, SQUEEZE_TIME)
