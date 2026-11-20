@@ -57,7 +57,8 @@ class PickPlaceTask:
     `result.tilt` are measured at the end; failed stage "release": the box is not upright (tilt >= MAX_TILT) or
     not inside the region; "full": every slot is taken (checked before the arm moves). `pick_only=True` ends
     after the lift (success = the box is held). `box`: the box to pick when it is not on the belt (a box in the
-    buffer, #101; `track` then stands still where it lies; the box is carried home before the place, #149).
+    buffer, #101; `track` then stands still where it lies; if the place cannot be planned from there, the box is
+    carried home first, #149).
     """
 
     def __init__(self, world: World, assignment: Assignment, track: Track, across_belt: bool = False,
@@ -289,15 +290,6 @@ class PickPlaceTask:
         if result.failed_stage is None and self.pick_only:
             result.success = True
             return
-        if result.failed_stage is None and self.box is not None:
-            # from the buffer the place swings the arm about 180 deg around its base: planned in one go it was
-            # infeasible from 4 of 6 slots for Robot 2, 1 of 6 for Robot 1 (#149); carried home first, it is not
-            def carry():
-                with planning_view(world, robot, box):
-                    return plan_home(C, robot)
-
-            if not (yield from run("carry", carry, HOME_TIME, carrying=box)):
-                result.failed_stage = result.failed_stage or "carry"
         placed, slot = False, None
         if result.failed_stage is None:
             slots = free_slots(C, region, [b for b in world.conveyor.colors if b != box])
@@ -313,7 +305,17 @@ class PickPlaceTask:
                                 break
                     return plan
 
-                placed = yield from run("place", place, PLACE_TIME, carrying=box)
+                if self.box is not None and not place().feasible:
+                    # from the buffer the place swings the arm about 180 deg around its base, which KOMO often does not
+                    # plan in one go (Robot 2 into the bin: 4 of 6 slots); then the box is carried home first (from
+                    # there Robot 2's place works, Robot 1's into region A does not: so only as a fallback, #149)
+                    def carry():
+                        with planning_view(world, robot, box):
+                            return plan_home(C, robot)
+
+                    yield from run("carry", carry, HOME_TIME, carrying=box)
+                if result.failed_stage is None:
+                    placed = yield from run("place", place, PLACE_TIME, carrying=box)
         # release: the box is on its own now (after a failure: back on the belt or wherever it fell)
         yield from let_go(box)
         left = yield from leave(box)
