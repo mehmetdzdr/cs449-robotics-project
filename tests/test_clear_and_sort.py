@@ -184,7 +184,7 @@ def layout(blockers, x, speed):
     (0.2, 1, 0), (0.2, 2, None), (0.2, 3, None),
 ])
 def test_clearing_is_started_only_if_it_finishes_in_time(speed, blockers, removals):
-    decision = decide(layout(blockers, -0.85, speed), {1: COLORED})
+    decision = decide(layout(blockers, -0.45, speed), {1: COLORED, 2: ()})   # Robot 2 removes the gray boxes (#154)
     if removals is None:
         assert decision.job is None and decision.infeasible == [0] and not decision.later
     else:
@@ -193,10 +193,10 @@ def test_clearing_is_started_only_if_it_finishes_in_time(speed, blockers, remova
 
 
 def test_clearing_that_can_start_later_is_deferred():
-    """Robot 2 alone, a gray target behind a red box (and one on the far side), upstream of Robot 2's reach: the red
-    box can only be put into the buffer once it is within reach, so the clearing starts later."""
-    tracks = [track(0, BoxColor.GRAY, -0.6, time=5.0), track(1, BoxColor.RED, -0.539, time=5.0),
-              track(2, BoxColor.RED, -0.6, y=0.261, time=5.0)]
+    """Robot 2 alone, a gray target behind a gray box (and one on the far side), upstream of Robot 2's reach: the
+    blocker can only be taken to the bin once it is within reach, so the clearing starts later."""
+    tracks = [track(0, BoxColor.GRAY, -0.9, time=5.0), track(1, BoxColor.GRAY, -0.839, time=5.0),
+              track(2, BoxColor.GRAY, -0.9, y=0.261, time=5.0)]
     decision = decide(tracks, {2: (BoxColor.GRAY,)})
     assert decision.job is None and decision.infeasible == [] and 5.0 < decision.later[0] < 25.0
 
