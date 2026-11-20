@@ -15,12 +15,12 @@ DEFAULT_TARGET = {
 }
 
 # which robots can place a box there (robot ids as in interfaces.Assignment)
-REGION_ROBOTS = {"region_A": (1,), "region_B": (1, 2), "region_C": (1,), "bin_gray": (2,)}
+REGION_ROBOTS = {"region_A": (1,), "region_B": (1,), "region_C": (1,), "bin_gray": (2,)}   # opposite sides (#154)
 
 # Physics backend, clearing (#101): a blocker that the robot removing it cannot take to its own region is put here,
 # and later taken on by a robot that can. Not a target region (no color goes there, no command names it).
 BUFFER = "buffer"
-BUFFER_ROBOTS = (1, 2)
+BUFFER_ROBOTS = ()   # not used with the robots on opposite sides (#154, see assets/scene.g)
 
 
 # Physics backend: a region holds up to len(SLOTS) boxes, one per slot (offsets from the region centre [m]).

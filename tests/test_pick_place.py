@@ -17,8 +17,8 @@ def assignment_for(track, robot_id, region, pick_time):
 @pytest.mark.parametrize("robot_id, speed, lead_time, region", [
     (1, 0.1, 3.0, "region_A"),
     (1, 0.2, 2.5, "region_B"),
-    (2, 0.3, 3.5, "bin_gray"),
-    (2, 0.3, 3.0, "region_B"),
+    (2, 0.3, 3.0, "bin_gray"),
+    (2, 0.1, 3.0, "bin_gray"),     # Robot 2 also reaches upstream of the belt middle (#154)
 ])
 def test_assignment_is_carried_out_for_either_robot(robot_id, speed, lead_time, region):
     world, box, track = tracked_box(speed)
@@ -43,10 +43,10 @@ def test_assignment_is_carried_out_for_either_robot(robot_id, speed, lead_time, 
 
 
 def test_unreachable_assignment_fails_at_pick_without_moving():
-    world, box, track = tracked_box(speed=0.1)
+    world, box, track = tracked_box(speed=0.1, x=-1.1)
     q = world.C.getJointState()
     time = world.time
-    result = pick_and_place(world, assignment_for(track, 2, "bin_gray", world.time + 2.0), track)
+    result = pick_and_place(world, assignment_for(track, 2, "bin_gray", world.time + 2.0), track)   # at x = -0.8
     assert not result.success and result.failed_stage == "pick" and result.box is None
     assert world.C.getJointState() == pytest.approx(q)
     assert world.time == time
@@ -64,7 +64,7 @@ def test_missed_grasp_sends_the_arm_home():
 
 def test_task_moves_only_its_own_arm():
     world, box, track = tracked_box(speed=0.3)
-    task = PickPlaceTask(world, assignment_for(track, 2, "bin_gray", world.time + 3.5), track)
+    task = PickPlaceTask(world, assignment_for(track, 2, "bin_gray", world.time + 3.0), track)
     while task.advance():
         assert world.C.getJointState()[:7] == pytest.approx(HOME_Q)      # Robot 1 is not touched
         world.step()
@@ -74,7 +74,7 @@ def test_task_moves_only_its_own_arm():
 def test_pick_is_not_started_when_the_lift_from_the_grasp_pose_cannot_be_planned():
     """Far side of the belt at the upstream limit: the grasp pose is reachable, but the arm cannot lift from it."""
     world = World(ConveyorConfig(speed=0.05, max_boxes=0))
-    box = world.conveyor.spawn_box(BoxColor.BLUE, x=-0.87 - 3.0 * 0.05, y=0.07)
+    box = world.conveyor.spawn_box(BoxColor.BLUE, x=-0.50 - 3.0 * 0.05, y=0.07)
     track = Track(0, BoxColor.BLUE, world.C.getFrame(box).getPosition(), np.array([0.05, 0, 0]), 0.0)
     q = world.C.getJointState()
     result = pick_and_place(world, assignment_for(track, 1, "region_C", 3.0), track)

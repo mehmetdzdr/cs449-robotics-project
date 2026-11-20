@@ -25,11 +25,11 @@ from conveyor_sort.sim.world import World
 # easier for Robot 2 (further from the limit of its reach), further upstream for Robot 1.
 CLEAR_XS = (0.1, 0.05, 0.0, -0.05, -0.1)
 ROBOT_2_MARGIN = [-0.1, 0.0, 0.15]   # Robot 2 must also reach this far upstream and up: at the limit the lift fails
-# Limits found by experiment. Beyond them Robot 2's arm is stretched so low over the belt that it touches the
-# wanted box, its lift cannot be planned and it is left holding the gray box in Robot 1's way.
-MAX_SPEED = 0.08      # belt speed [m/s]
-MAX_LATERAL = 0.01    # offset of the gray box from the belt centre line, away from the robots [m]: near half only
-CLEAR_DELAY = 3.0     # Robot 1 grasps this long after Robot 2: the gray box is lifted and on its way to the bin [s]
+MAX_SPEED = 0.08      # belt speed [m/s], found by experiment
+# Robot 1 grasps this long after Robot 2: the gray box is lifted and on its way to the bin [s]. With the robots on
+# opposite sides (#154) both arms reach over the belt to the same spot from opposite sides: with 3 s they touched in
+# 8 of 9 scenarios, with 4 s none did (9 of 9 cleared, also with the boxes on either half of the belt).
+CLEAR_DELAY = 4.0
 
 
 def blockers(track: Track, tracks: list[Track], time: float) -> list[Track]:
@@ -67,7 +67,7 @@ def plan_clear_and_sort(world: World, tracks: list[Track], first_seen: dict[int,
         if len(in_the_way) != 1 or in_the_way[0].color != BoxColor.GRAY or not usable(in_the_way[0]):
             continue
         gray = in_the_way[0]
-        if gray.velocity[0] > MAX_SPEED or gray.position[1] - world.conveyor.geometry.y > MAX_LATERAL:
+        if gray.velocity[0] > MAX_SPEED:
             continue
         for clear_x in CLEAR_XS:
             clear_time = gray.timestamp + (clear_x - gray.position[0]) / gray.velocity[0]

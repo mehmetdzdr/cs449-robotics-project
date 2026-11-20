@@ -24,7 +24,7 @@ def test_region_contains():
 
 
 @pytest.mark.parametrize("region, robots", [
-    ("region_A", {1}), ("region_B", {1, 2}), ("region_C", {1}), ("bin_gray", {2}),
+    ("region_A", {1}), ("region_B", {1}), ("region_C", {1}), ("bin_gray", {2}),
 ])
 def test_region_reachability(region, robots):
     C = load_scene()
@@ -32,9 +32,10 @@ def test_region_reachability(region, robots):
     assert {r for r in (1, 2) if is_reachable(C, r, p)} == robots
 
 
-def test_buffer_is_reachable_by_both_robots_and_not_a_target():
+def test_buffer_is_not_a_target_and_not_used():
+    """With the robots on opposite sides of the belt (#154) no table spot is reachable by both: the buffer is unused."""
     C = load_scene()
-    assert BUFFER in C.getFrameNames() and BUFFER not in REGIONS and set(BUFFER_ROBOTS) == {1, 2}
+    assert BUFFER in C.getFrameNames() and BUFFER not in REGIONS and BUFFER_ROBOTS == ()
     for slot in range(len(SLOTS)):                  # every slot, at the height of a placed box
         p = np.append(slot_position(C, BUFFER, slot), 0.65)
-        assert all(is_reachable(C, r, p) for r in (1, 2))
+        assert not is_reachable(C, 2, p)

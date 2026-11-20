@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from conveyor_sort.interfaces import BoxColor
 from conveyor_sort.planning.execute import execute_path, grasp
 from conveyor_sort.planning.pick import plan_lift, plan_moving_pick
 from conveyor_sort.prediction.tracker import Tracker
@@ -9,9 +10,11 @@ from conveyor_sort.sim.ground_truth import GroundTruthDetector
 from conveyor_sort.sim.world import World
 
 
-def tracked_box(speed: float, observe: float = 1.0):
-    """World with one moving box, observed for `observe` seconds with the ground-truth detector."""
-    world = World(ConveyorConfig(speed=speed, spacing=100.0))
+def tracked_box(speed: float, observe: float = 1.0, x: float = -0.75):
+    """World with one box moving from belt position x (the robots, at x = 0, reach from about -0.6), observed for
+    `observe` seconds with the ground-truth detector."""
+    world = World(ConveyorConfig(speed=speed, max_boxes=0))
+    world.conveyor.spawn_box(BoxColor.RED, x=x, y=0.0)
     detector, tracker = GroundTruthDetector(world), Tracker()
     tracks = []
     world.run(observe, lambda w: tracks.__setitem__(slice(None), tracker.update(detector.detect(), w.time)))
@@ -20,7 +23,7 @@ def tracked_box(speed: float, observe: float = 1.0):
     return world, box, track
 
 
-@pytest.mark.parametrize("speed, lead_time", [(0.05, 3.0), (0.1, 3.0), (0.2, 2.5), (0.3, 2.0)])
+@pytest.mark.parametrize("speed, lead_time", [(0.05, 5.0), (0.1, 3.0), (0.2, 2.5), (0.3, 2.0)])
 def test_moving_box_is_picked_at_the_predicted_intercept(speed, lead_time):
     world, box, track = tracked_box(speed)
     C = world.C
@@ -50,11 +53,11 @@ def test_moving_box_is_picked_at_the_predicted_intercept(speed, lead_time):
 
 
 def test_infeasible_when_box_is_outside_the_robots_reach_at_pick_time():
-    world, _, track = tracked_box(speed=0.1)
-    # after 2 s the box is still at the far left of the belt: Robot 2 cannot reach it
+    world, _, track = tracked_box(speed=0.1, x=-1.1)
+    # after 2 s the box is still at the far left of the belt (x = -0.8): Robot 2 cannot reach it
     assert not plan_moving_pick(world.C, 2, track, world.time, world.time + 2.0).feasible
-    # after 15 s it has passed Robot 1's reach
-    assert not plan_moving_pick(world.C, 1, track, world.time, world.time + 15.0).feasible
+    # after 18 s (x = 0.8) it has passed Robot 1's reach
+    assert not plan_moving_pick(world.C, 1, track, world.time, world.time + 18.0).feasible
 
 
 def test_planning_leaves_no_helper_frame_behind():

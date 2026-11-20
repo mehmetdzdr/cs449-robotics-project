@@ -21,9 +21,11 @@ def test_scene_with_belt_is_collision_free():
 
 
 @pytest.mark.parametrize("x, robot1, robot2", [
-    (-0.6, True, False),   # only Robot 1
-    (0.0, True, True),     # shared workspace in the middle of the belt
-    (0.6, False, True),    # only Robot 2
+    (-0.8, False, False),  # upstream: the robots stand at the middle of the belt, on opposite sides (#154)
+    (-0.4, True, True),    # both robots reach x in [-0.5, 0.5] across the whole belt
+    (0.0, True, True),
+    (0.4, True, True),
+    (0.8, False, False),
 ])
 def test_belt_reachability(x, robot1, robot2):
     C = load_scene()

@@ -7,7 +7,7 @@ from typing import Callable
 
 import numpy as np
 
-from conveyor_sort.coordination.allocation import COLORED, FIXED_ROLES, SHARED_ROLES
+from conveyor_sort.coordination.allocation import COLORED, FIXED_ROLES
 from conveyor_sort.interfaces import BoxColor
 from conveyor_sort.perception.detectors import get_detector
 from conveyor_sort.sim.conveyor import ConveyorConfig
@@ -18,7 +18,8 @@ FINISH_TIME = 12.0   # time for the pick-and-place of the last box, added to the
 # manipulation configurations: name -> (roles, clear-and-sort)
 MODES = {"single": ({1: COLORED}, False),          # Robot 1 alone: gray boxes leave the belt
          "fixed": (FIXED_ROLES, False),            # Robot 1 sorts, Robot 2 removes gray boxes
-         "coordinated": (SHARED_ROLES, True)}      # both sort green, clear-and-sort for blocked boxes
+         "coordinated": (FIXED_ROLES, True)}       # fixed roles and clear-and-sort for blocked boxes (until #154
+                                                    # also both robots sorted green, into the shared region B)
 
 
 @dataclass

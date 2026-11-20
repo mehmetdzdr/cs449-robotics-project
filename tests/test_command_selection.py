@@ -42,15 +42,13 @@ def test_box_of_the_commanded_color_closest_to_the_robot_is_chosen(world):
 
 
 def test_robot_is_chosen_by_the_target_region(world):
-    red = [track(0, BoxColor.RED, -0.4, world), track(1, BoxColor.RED, 0.6, world)]
+    red = [track(0, BoxColor.RED, -0.4, world), track(1, BoxColor.RED, 0.3, world)]
     assert select_from(world, "put a red box into the bin", red).robot_id == 2          # only Robot 2 reaches the bin
-    assert select_from(world, "put a red box into the bin", red).track_id == 1
+    assert select_from(world, "put a red box into the bin", red).track_id == 1          # (it picks from x = -0.15)
     assert select_from(world, "pick a red box and place it at C", red).track_id == 0    # only Robot 1 reaches C
     assert select_from(world, "pick a red box and place it at C", red[1:]) is None      # the box has passed Robot 1
-    # region B is served by both robots: the box nearer to its robot wins
-    near_2 = [track(0, BoxColor.RED, -0.9, world), track(1, BoxColor.RED, 0.45, world)]
-    assert select_from(world, "pick a red box and place it at B", near_2).robot_id == 2
-    assert select_from(world, "pick a red box and place it at B", near_2, robots=(1,)).track_id == 0
+    assert select_from(world, "pick a red box and place it at B", red).robot_id == 1    # B: Robot 1's side (#154)
+    assert select_from(world, "pick a red box and place it at B", red, robots=(2,)) is None
 
 
 def test_no_feasible_box(world):

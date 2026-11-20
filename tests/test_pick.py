@@ -18,7 +18,7 @@ def world_with_box(x: float, y_offset: float = 0.0):
 
 
 @pytest.mark.parametrize("robot_id, x, y_offset", [
-    (1, -0.7, 0.0), (1, -0.4, 0.1), (1, -0.1, -0.1), (2, 0.5, 0.05),
+    (1, -0.5, 0.0), (1, -0.4, 0.1), (1, -0.1, -0.1), (2, 0.5, 0.05), (2, -0.4, 0.0),
 ])
 def test_pick_plan_reaches_box_without_collisions(robot_id, x, y_offset):
     world, box = world_with_box(x, y_offset)
