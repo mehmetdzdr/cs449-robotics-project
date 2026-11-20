@@ -9,7 +9,7 @@ from conveyor_sort.planning.pick_place import PickPlaceTask
 from conveyor_sort.prediction.tracker import Tracker
 from conveyor_sort.sim.regions import region_contains
 from conveyor_sort.sim.world import World
-from conveyor_sort.sorting import RETRY_DELAY
+from conveyor_sort.sorting import RETRY_DELAY, collect_if_full
 
 
 @dataclass
@@ -62,6 +62,7 @@ class CommandMode:
                 self._step()
                 continue
             track = next(t for t in self.tracks if t.track_id == assignment.track_id)
+            collect_if_full(world, command.target_region)   # physics: a full region is emptied first (#142)
             task = PickPlaceTask(world, assignment, track)
             if not task.advance():                 # the pick cannot be planned from here: try again a little later
                 blocked[track.track_id] = world.time + RETRY_DELAY
