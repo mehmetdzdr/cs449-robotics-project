@@ -73,9 +73,10 @@ class SortingStats:
 def collect_if_full(world: World, region: str) -> bool:
     """Physics backend: if every slot of `region` is taken, its boxes are collected (taken out, as an operator empties
     a full bin) so that the next box can be placed. Called when a task for the region starts: only one robot works
-    in a region at a time, so no arm is above it. Returns whether the region was emptied."""
+    in a region at a time, so no arm is above it. Returns whether the region was emptied. Never the buffer (#101):
+    its boxes are still to be sorted."""
     conveyor = world.conveyor
-    if world.bot is None or free_slot(world.C, region, conveyor.colors) is not None:
+    if world.bot is None or region == BUFFER or free_slot(world.C, region, conveyor.colors) is not None:
         return False
     on_belt = set(conveyor.on_belt())
     for box in [b for b in conveyor.colors if b not in on_belt and b not in conveyor.held
@@ -237,6 +238,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
             color, position = world.conveyor.colors[box], world.C.getFrame(box).getPosition().copy()
             track = Track(-1 - int(box.split("_")[1]), color, position, np.zeros(3), world.time)   # standing still
             assignment = Assignment(robot_id, track.track_id, DEFAULT_TARGET[color], world.time + LEAD_TIME, position)
+            stats.regions_emptied += collect_if_full(world, assignment.target_region)
             tasks[robot_id] = PickPlaceTask(world, assignment, track, box=box), track
             attempts[track.track_id] += 1
             return

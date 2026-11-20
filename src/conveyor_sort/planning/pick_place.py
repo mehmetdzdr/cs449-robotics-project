@@ -11,8 +11,7 @@ from conveyor_sort.physics.grasping import (SLIP_TOLERANCE, SQUEEZE_SETTLE, SQUE
 from conveyor_sort.planning.execute import follow_path, grasp, release
 from conveyor_sort.planning.pick import Plan, plan_home, plan_lift, plan_moving_pick, plan_place
 from conveyor_sort.sim.conveyor import BOX_SIZE
-from conveyor_sort.sim.regions import (BUFFER, REGIONS, SLOTS, free_slot, free_slots, region_contains,
-                                       slot_position)
+from conveyor_sort.sim.regions import REGIONS, SLOTS, free_slot, free_slots, region_contains, slot_position
 from conveyor_sort.sim.scene import ROBOT_PREFIX
 from conveyor_sort.sim.world import World
 
@@ -95,8 +94,8 @@ class PickPlaceTask:
         planned for. Predicted more than REPLAN_DISTANCE away at pick time (pushed by a finger or a neighbour), the
         pick is re-planned from where the arm is, if at least MIN_REPLAN_TIME is left; not seen for LOST_TIME (pushed
         off the belt), the attempt ends with "lost" and the arm goes home."""
-        if not self._picking or self._update is not None:
-            return
+        if not self._picking or self._update is not None or self.box is not None:   # a box off the belt (the
+            return                                                                  # buffer) is not tracked
         world, pick_time = self._world, self.assignment.pick_time
         track = next((t for t in tracks if t.track_id == self._track.track_id), None)
         if track is None or world.time - track.timestamp > LOST_TIME:
@@ -193,7 +192,7 @@ class PickPlaceTask:
                 return "floor"
             if position[2] > world.conveyor.geometry.z_top + BOX_SIZE:      # higher than a box on the belt or table
                 return "box"
-            return "region" if any(region_contains(C, r, position) for r in REGIONS + [BUFFER]) else "table"
+            return "region" if any(region_contains(C, r, position) for r in REGIONS) else "table"
 
         gripper = C.getFrame(f"{ROBOT_PREFIX[robot]}gripper")
 
