@@ -36,6 +36,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `sim/regions.py` | `REGIONS`, `DEFAULT_TARGET` (red A, green B, blue C, gray bin), `region_contains`; physics backend: `SLOTS`, `free_slot`, `slot_position` |
 | `sim/world.py` | `World`: scene + conveyor + clock (`step`, `run`); `World(physics=True, hyper_speed=...)` runs BotOp's simulation, clock from `bot.get_t()`, `close()` stops it |
 | `sim/ground_truth.py` | `GroundTruthDetector(world).detect()` |
+| `sim/scenarios.py` | `make_scenario(name, seed, lateral, spacing)`: scripted layout as data (colored target + gray neighbours, world xy; `NEIGHBOURHOODS` free / front / back / front_back / left_right / surrounded / cluster_3x3, `LATERAL`, `SPACING`), `spawn_scenario(world, scenario)`, `scenarios()`: the 48 combinations that fit on the belt (side neighbours only with the target at the centre) |
 | `perception/camera.py` | `Camera.capture()` returns `Observation` (rgb, depth, GT segmentation, intrinsics, pose); `Camera(C, bot=world.bot)`: rgb / depth from BotOp's simulated camera (`get_detector` does this on the physics backend) |
 | `perception/localization.py` | `mask_to_world(mask, obs)`: mask + depth to box centre in world frame |
 | `perception/hsv.py` | `HsvDetector(belt).detect(obs)` / `.masks(obs)`: HSV thresholds in the belt ROI, blobs, height check |
