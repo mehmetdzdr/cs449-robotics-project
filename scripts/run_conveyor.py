@@ -28,11 +28,18 @@ if args.video:
     writer = cv2.VideoWriter(args.video, cv2.VideoWriter_fourcc(*"mp4v"), round(1 / world.dt), (1280, 720))
 
 
+frames = [0]                                    # video frames written so far
+
+
 def on_step(world: World) -> None:
     if args.view:
         world.C.view(False, f"t = {world.time:.2f} s")
     if writer:
-        writer.write(cv2.cvtColor(camera.capture(world.time).rgb, cv2.COLOR_RGB2BGR))
+        frame = cv2.cvtColor(camera.capture(world.time).rgb, cv2.COLOR_RGB2BGR)
+        due = round(world.time / world.dt)       # physics steps are longer than dt: repeat the frame so
+        for _ in range(due - frames[0]):          # that the video plays in real time
+            writer.write(frame)
+        frames[0] = max(frames[0], due)
 
 
 world.run(args.duration, on_step)
