@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 
 from conveyor_sort.interfaces import BoxColor
-from conveyor_sort.planning.pick import plan_pick
+from conveyor_sort.planning.pick import ARM_JOINT_NAMES, own_arm_only, plan_pick
 from conveyor_sort.sim.conveyor import ConveyorConfig
-from conveyor_sort.sim.scene import ROBOT_PREFIX
+from conveyor_sort.sim.scene import ROBOT_PREFIX, arm_joints
 from conveyor_sort.sim.world import World
 
 
@@ -45,3 +45,22 @@ def test_pick_plan_reaches_box_without_collisions(robot_id, x, y_offset):
 def test_pick_plan_is_infeasible_out_of_reach():
     world, box = world_with_box(0.8)       # far right: Robot 1 cannot reach
     assert not plan_pick(world.C, 1, box).feasible
+
+
+def test_own_arm_only_keeps_the_other_arm_where_it_is():
+    """#141: only the planning robot's joints are executed, so a plan must not move the other arm out of the way.
+    Robot 2 reaches for a box, Robot 1 plans a pick of the same box: within own_arm_only Robot 2's joints stay
+    fixed and the plan is infeasible (Robot 2 is in the way). Planned with both arms, it was "feasible" with Robot
+    2 moved by 0.14 rad, and executed with Robot 2 where it is the path went 14 cm into Robot 2."""
+    world = World(ConveyorConfig(speed=0.0, max_boxes=0))
+    C = world.C
+    box = world.conveyor.spawn_box(BoxColor.GREEN, x=-0.1, y=0.0)
+    reach = plan_pick(C, 2, box)
+    assert reach.feasible
+    C.setJointState(reach.path[12])                               # Robot 2 on its way down to the box
+    q, other = C.getJointState(), arm_joints(C, 2)
+    with own_arm_only(C):
+        plan = plan_pick(C, 1, box)
+    assert np.array_equal(plan.path[:, other], np.tile(q[other], (len(plan.path), 1)))
+    assert np.array_equal(C.getJointState(), q) and C.getJointNames() == ARM_JOINT_NAMES   # C restored
+    assert not plan.feasible
