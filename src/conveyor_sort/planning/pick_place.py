@@ -10,7 +10,7 @@ from conveyor_sort.physics.grasping import (SLIP_TOLERANCE, SQUEEZE_SETTLE, SQUE
                                             ignoring, planning_view)
 from conveyor_sort.planning.execute import follow_path, grasp, release
 from conveyor_sort.planning.pick import Plan, plan_home, plan_lift, plan_moving_pick, plan_place
-from conveyor_sort.sim.regions import region_contains
+from conveyor_sort.sim.regions import SLOTS, free_slot, free_slots, region_contains, slot_position
 from conveyor_sort.sim.scene import ROBOT_PREFIX
 from conveyor_sort.sim.world import World
 
@@ -25,7 +25,7 @@ class PickPlaceResult:
     planning_time: float            # summed KOMO solve time of all stages [s]
     failed_stage: str | None        # "pick", "grasp", "slip", "lift", "place", "release", "retreat", "home", or None
     box: str | None                 # frame name of the grasped box
-    place_error: float | None = None   # physics backend: placed box centre to region centre in xy [m]
+    place_error: float | None = None   # physics backend: placed box centre to its slot centre in xy [m]
     tilt: float | None = None          # physics backend: placed box's tilt from upright [deg]
 
 
@@ -42,10 +42,11 @@ class PickPlaceTask:
     Physics backend (`World(physics=True)`): the grasp is physical. At pick time the belt stops driving the box
     under the gripper, the fingers squeeze it and the box is held by friction only. Failed stage "grasp": the
     fingers closed on nothing (then they open and the arm goes home); "slip": the box did not rise with the
-    gripper during the lift. The place is physical too: the box is lowered to its resting height in the region
-    (`drop` higher, if given), the fingers open and the box is on its own while the arm retreats and goes home.
-    `result.place_error` (box centre to region centre in xy) and `result.tilt` are measured at the end; failed
-    stage "release": the box is not upright (tilt >= MAX_TILT) or not inside the region. `pick_only=True` ends
+    gripper during the lift. The place is physical too: the box is lowered to its resting height in the first
+    free slot of the region (`regions.SLOTS`; `drop` higher, if given), the fingers open and the box is on its own
+    while the arm retreats and goes home. `result.place_error` (box centre to slot centre in xy) and
+    `result.tilt` are measured at the end; failed stage "release": the box is not upright (tilt >= MAX_TILT) or
+    not inside the region; "full": every slot is taken (checked before the arm moves). `pick_only=True` ends
     after the lift (success = the box is held).
     """
 
@@ -136,6 +137,10 @@ class PickPlaceTask:
                 home = plan_home(C, robot)
             return (yield from run("home", home, HOME_TIME))
 
+        region = assignment.target_region
+        if not self.pick_only and free_slot(C, region, world.conveyor.colors) is None:
+            result.failed_stage = "full"                       # reported, not overfilled; the arm has not moved
+            return
         world.arms.finger_target[robot] = FINGER_OPEN         # the pick path opens the fingers on the way
         with planning_view(world, robot):
             pick = self._plan_pick(world, assignment, track)
@@ -165,18 +170,24 @@ class PickPlaceTask:
         if result.failed_stage is None and self.pick_only:
             result.success = True
             return
-        placed = False
+        placed, slot = False, None
         if result.failed_stage is None:
-            with planning_view(world, robot, box):
-                place = plan_place(C, robot, box, assignment.target_region, clearance=self.drop)
-            placed = yield from run("place", place, PLACE_TIME)
+            slots = free_slots(C, region, [b for b in world.conveyor.colors if b != box])
+            if not slots:
+                result.failed_stage = "full"
+            else:
+                with planning_view(world, robot, box):
+                    for slot in slots:       # the first free slot whose place can be planned (Robot 2 into the bin:
+                        place = plan_place(C, robot, box, region, clearance=self.drop, offset=SLOTS[slot])
+                        if place.feasible:   # some slots next to boxes already there could not be planned)
+                            break
+                placed = yield from run("place", place, PLACE_TIME)
         # release: the box is on its own now (after a failure: back on the belt or wherever it fell)
         yield from let_go(box)
         if not ((yield from leave(box)) and placed):
             return
-        region = assignment.target_region
         frame = C.getFrame(box)
-        result.place_error = float(np.linalg.norm(frame.getPosition()[:2] - C.getFrame(region).getPosition()[:2]))
+        result.place_error = float(np.linalg.norm(frame.getPosition()[:2] - slot_position(C, region, slot)))
         result.tilt = float(np.degrees(np.arccos(np.clip(frame.getRotationMatrix()[2, 2], -1.0, 1.0))))
         result.success = region_contains(C, region, frame.getPosition()) and result.tilt < MAX_TILT
         if not result.success:
