@@ -24,6 +24,7 @@ MIN_REPLAN_TIME = 0.5     # ... if at least this much time is left before the gr
 CLEARANCE = 0.02   # physics backend: the arms must stay this far apart while both move [m] (#141)
 MAX_WAIT = 15.0    # ... an arm waits at most this long for the other one to finish its motion [s]
 LOST_TIME = 1.2           # ... a box not seen for this long has left the belt (BotOp: an image every 0.5 s) [s]
+HAND_OVER_BOX = 0.12      # no re-plan while the gripper is this close to the box (xy) [m]
 
 
 @dataclass
@@ -104,8 +105,14 @@ class PickPlaceTask:
         world, pick_time = self._world, self.assignment.pick_time
         track = next((t for t in tracks if t.track_id == self._track.track_id), None)
         if track is None or world.time - track.timestamp > LOST_TIME:
-            self._update = "lost"
-        elif (np.linalg.norm(track.predict(pick_time) - self._track.predict(pick_time)) > REPLAN_DISTANCE
+            if pick_time - world.time > MIN_REPLAN_TIME:   # just before the grasp the own hand hides the box (#154:
+                self._update = "lost"                        # seen last 1.3 s before it, given up 0.13 s before it)
+            return
+        gripper = world.C.getFrame(f"{ROBOT_PREFIX[self.assignment.robot_id]}gripper").getPosition()
+        if np.linalg.norm(gripper[:2] - self._track.predict(world.time)[:2]) < HAND_OVER_BOX:
+            return     # the hand partly hides the box: a detection of its visible part only (#154: such detections
+            #            re-planned the grasp beside the box)
+        if (np.linalg.norm(track.predict(pick_time) - self._track.predict(pick_time)) > REPLAN_DISTANCE
               and pick_time - world.time > MIN_REPLAN_TIME):
             self._update, self._track = track, track
 
