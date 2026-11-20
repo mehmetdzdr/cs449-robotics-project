@@ -3,6 +3,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable
 
+import numpy as np
+
 from conveyor_sort.coordination.allocation import (COLORED, FIXED_ROLES, LEAD_TIME, CoordinationLog, allocate,
                                                     uses_shared_area)
 from conveyor_sort.coordination.clear_and_sort import plan_clear_and_sort
@@ -17,6 +19,7 @@ RETRY_DELAY = 0.5      # a box whose pick could not be planned is tried again af
 MAX_ATTEMPTS = 3       # a box back on the belt after a failed grasp, slip or drop is tried again, this often in all
 RETRY_STAGES = ("grasp", "slip", "lift", "drop")   # failures after which the box may lie on the belt again
 FINISH_TIMEOUT = 20.0  # physics backend: at the end of a run, running tasks get this long to finish [s]
+TRACK_MATCH = 0.05     # tracking error: a track is compared with the true box nearest to it, if within this [m]
 INHERIT_X, INHERIT_Y = 0.15, 0.06   # a new track this close to where a failed box is expected takes over its count [m]
 
 
@@ -42,6 +45,7 @@ class SortingStats:
     clear_and_sort: list[bool] = field(default_factory=list)   # one entry per attempt: wanted box sorted after the gray one was removed
     min_arm_distance: float = float("inf")   # physics backend: closest approach of the two arms [m] (inf: never within 0.2 m)
     arm_contacts: list[tuple[float, str, str]] = field(default_factory=list)   # physics backend: (time, frame, frame)
+    tracking_errors: list[float] = field(default_factory=list)   # per step and track: distance to its true box [m]
     regions_emptied: int = 0   # physics backend: full regions whose boxes were collected before the next place (#142)
 
     @property
@@ -203,6 +207,11 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
             stats.min_arm_distance = min(stats.min_arm_distance, distance)
             stats.arm_contacts += [(world.time, a, b) for a, b, _ in contacts]
         tracks[:] = tracker.update(detect(), world.time)
+        truth = [world.C.getFrame(b).getPosition() for b in world.conveyor.on_belt()]   # evaluation only
+        for track in tracks:
+            error = min((np.linalg.norm(track.predict(world.time) - p) for p in truth), default=np.inf)
+            if error < TRACK_MATCH:
+                stats.tracking_errors.append(float(error))
         for track in tracks:
             if track.track_id not in first_seen and failed_boxes:
                 inherit(track)

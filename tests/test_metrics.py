@@ -99,3 +99,16 @@ def test_clear_and_sort_is_logged_for_a_stream_with_blocked_pairs():
     assert record["clear_and_sort_attempts"] == 1 and record["clear_and_sort_success_rate"] == 1.0
     fixed = run_experiment(ExperimentConfig("pairs", 0.05, 0.6, 10, seed=0, mode="fixed", blocked_pairs=0.5))
     assert fixed["clear_and_sort_attempts"] == 0 and fixed["sorted_correctly"] < record["sorted_correctly"]
+
+
+@pytest.mark.slow
+def test_physics_run_logs_grasp_failures_slips_drops_and_tracking_error():
+    """#107: the same experiment on the BotOp physics backend, with the new metrics."""
+    record = run_experiment(ExperimentConfig("physics", 0.1, 0.6, 4, seed=0, mode="fixed", physics=True))
+    print({k: record[k] for k in ("sorted_correctly", "missed", "grasp_failures", "slips", "drops",
+                                  "tracking_error_mean", "arm_contacts")})
+    assert record["physics"] and record["boxes"] == 4 and record["sorted_correctly"] >= 3
+    failures = record["grasp_failures"] + record["slips"] + record["drops"] + record["other_failures"]
+    assert failures <= record["attempts"]
+    assert 0.0 <= record["tracking_error_mean"] < 0.005 and record["arm_contacts"] == 0   # ground-truth detections
+    assert sum(json.loads(record["dropped_on"]).values()) == record["slips"] + record["drops"]

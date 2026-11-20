@@ -2,7 +2,8 @@
 
     python evaluation/make_figures.py            (needs matplotlib: pip install -e ".[eval]")
 
-Reads results/{manipulation,perception,prediction,prediction_physics,command,command_fast}.csv, written by the benchmark scripts
+Reads results/{manipulation,manipulation_physics,perception,prediction,prediction_physics,command,command_fast,
+command_physics}.csv, written by the benchmark scripts
 in this directory, and writes evaluation/figures/*.png and evaluation/figures/tables.md. A missing CSV is skipped.
 """
 import argparse
@@ -117,6 +118,43 @@ if runs:
         table(f"Manipulation: streams with blocked pairs ({len(paired) // 3} streams per configuration)",
               ["configuration", "sorted correctly", "blocked pairs", "clear-and-sort attempts", "success rate"], rows)
 
+# ---------------------------------------------------------------- manipulation: kinematic vs physics (#107)
+physical = read("manipulation_physics.csv")
+if runs and physical:
+    def numbers(rs: list[dict], key: str) -> list[float]:
+        return [float(r[key]) for r in rs if r.get(key, "") not in ("", "nan")]
+
+    def column(rs: list[dict]) -> dict[str, str]:
+        total = sum(float(r["boxes"]) for r in rs)
+        values = {"sorted correctly": f"{share(rs, 'sorted_correctly'):.1%}", "left the belt": f"{share(rs, 'missed'):.1%}",
+                  "grasp success rate": f"{np.mean(numbers(rs, 'grasp_success_rate')):.2f}",
+                  "throughput [boxes/min]": f"{np.mean(numbers(rs, 'throughput')):.2f}",
+                  "planning time per pick-and-place, mean [s]": f"{np.mean(numbers(rs, 'planning_time_mean')):.2f}",
+                  "completion time, mean [s]": f"{np.mean(numbers(rs, 'completion_time')):.0f}"}
+        if "slips" in rs[0]:   # physics runs only
+            failures = {k: int(sum(numbers(rs, k))) for k in ("grasp_failures", "slips", "drops", "other_failures")}
+            values |= {"grasp failures / slips / drops / other": "{grasp_failures} / {slips} / {drops} / {other_failures}".format(**failures),
+                       "failed attempts per 100 boxes": f"{100 * sum(failures.values()) / total:.1f}",
+                       "arm contacts": str(int(sum(numbers(rs, "arm_contacts")))),
+                       "closest arm approach [cm]": f"{100 * min(numbers(rs, 'min_arm_distance')):.1f}"}
+        return values
+
+    rows, header = defaultdict(list), ["metric"]
+    for mode in MODE_COLORS:
+        for backend, rs in (("kinematic", runs), ("physics", physical)):
+            selected = [r for r in rs if r["mode"] == mode and float(r["blocked_pairs"]) == 0]
+            if not selected:
+                continue
+            values = column(selected)
+            header.append(f"{mode}, {backend}")
+            for name in ("sorted correctly", "left the belt", "grasp success rate", "throughput [boxes/min]",
+                         "planning time per pick-and-place, mean [s]", "completion time, mean [s]",
+                         "grasp failures / slips / drops / other", "failed attempts per 100 boxes", "arm contacts",
+                         "closest arm approach [cm]"):
+                rows[name].append(values.get(name, "-"))
+    table(f"Manipulation: kinematic vs physics ({len([r for r in physical if float(r['blocked_pairs']) == 0]) // 3} "
+          "streams per configuration, ground-truth detections)", header, [[name] + cells for name, cells in rows.items()])
+
 # ---------------------------------------------------------------- perception: HSV vs YOLO vs SAM
 rows_csv = read("perception.csv")
 if rows_csv:
@@ -200,6 +238,25 @@ for name, label in (("command.csv", "0.1 m/s, a box every 4 s"), ("command_fast.
 if rows:
     table("Command mode: random commands", ["belt", "commands", "parsed", "correct color", "correct destination", "success rate",
                                             "time mean / max [s]", "Robot 1 / Robot 2"], rows)
+
+# ---------------------------------------------------------------- command mode on physics (#109)
+records = read("command_physics.csv")
+if records:
+    rows = []
+    for speed, blocked in sorted({(r["speed"], r["blocked_pairs"]) for r in records}, key=lambda k: (float(k[1]), float(k[0]))):
+        rs = [r for r in records if (r["speed"], r["blocked_pairs"]) == (speed, blocked)]
+        correct = [r for r in rs if r["correct_color"] == "True" and r["correct_region"] == "True"]
+        times = [float(r["time"]) for r in correct]
+        failures = defaultdict(int)
+        for r in rs:
+            if r not in correct:
+                failures[r["failed_stage"]] += 1
+        rows.append([f"{speed} m/s", "every box blocked" if float(blocked) else "normal", str(len(rs)),
+                     f"{len(correct) / len(rs):.0%}", f"{np.mean(times):.1f} / {np.max(times):.1f}" if times else "-",
+                     ", ".join(f"{k} {v}" for k, v in sorted(failures.items())) or "-",
+                     f"{sum(r['robot'] == '1' for r in rs)} / {sum(r['robot'] == '2' for r in rs)}"])
+    table("Command mode on physics: random commands (a box every 0.4 m; blocked: a gray box 8 cm in front of each colored one)",
+          ["belt", "stream", "commands", "success rate", "time mean / max [s]", "failures", "Robot 1 / Robot 2"], rows)
 
 (args.out / "tables.md").write_text("\n".join(tables), encoding="utf-8")
 print(f"wrote {args.out / 'tables.md'}")

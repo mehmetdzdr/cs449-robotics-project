@@ -1,3 +1,5 @@
+import pytest
+
 from conveyor_sort.command.benchmark import random_commands, run_commands
 from conveyor_sort.command.parser import parse_command
 from conveyor_sort.interfaces import Command
@@ -20,3 +22,12 @@ def test_random_commands_are_carried_out_correctly():
         assert record["robot"] in (1, 2) and record["failed_stage"] is None and 5.0 < record["time"] < 90.0
     rate = sum(r["correct_color"] and r["correct_region"] for r in records) / len(records)
     print(f"success rate {rate:.0%}, robots {[r['robot'] for r in records]}")
+
+
+@pytest.mark.slow
+def test_commands_on_physics_with_blocked_boxes():
+    """#109: the command benchmark on the physics backend, every box blocked by a gray box in front of it."""
+    records = run_commands(random_commands(2, seed=0), speed=0.1, physics=True, blocked_pairs=1.0)
+    print([(r["command"], r["failed_stage"], r["time"]) for r in records])
+    assert len(records) == 2 and all(r["physics"] and r["blocked_pairs"] == 1.0 for r in records)
+    assert all(r["parsed"] for r in records) and sum(r["correct_color"] and r["correct_region"] for r in records) >= 1
