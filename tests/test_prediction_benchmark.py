@@ -79,3 +79,14 @@ def test_false_and_missed_detections_add_no_predictions():
     errors = recorded_errors(frames, "cv", [0.5, 1.0])
     assert [2 * len(e) for e in errors] == baseline   # only box_0's predictions are left
     assert max(e.max() for e in errors) < 1e-6
+
+
+def test_detections_of_older_images_are_used():
+    """BotOp's camera images are older than the step that returns them (#94): a detection stamped 0.075 s before
+    the step still counts, and is compared with where the box was at that time (#126: the HSV run gave none)."""
+    frames = belt_recording(irregular_times(), {"box_0": (-1.0, 0.1)})
+    for frame in frames:
+        frame.detections = [Detection(d.color, d.position - [0.1 * 0.075, 0, 0], d.confidence, d.timestamp - 0.075)
+                            for d in frame.detections]   # where the box was 0.075 s earlier, stamped with that time
+    errors = recorded_errors(frames, "cv", [0.5, 1.0])
+    assert all(len(e) > 50 for e in errors) and max(e.max() for e in errors) < 1e-6

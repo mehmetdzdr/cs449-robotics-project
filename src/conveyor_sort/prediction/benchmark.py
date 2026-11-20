@@ -83,14 +83,18 @@ def recorded_errors(frames: list[Frame], predictor: str, horizons: list[float], 
     seen: dict[int, int] = {}   # track id -> detections so far
     errors: list[list[float]] = [[] for _ in horizons]
     for frame in frames:
+        stamps = {d.timestamp for d in frame.detections}   # BotOp images are older than the step (#94)
         for track in tracker.update(frame.detections, frame.time):
-            if abs(track.timestamp - frame.time) > 1e-9:
+            if track.timestamp not in stamps:
                 continue   # not detected in this step
             seen[track.track_id] = seen.get(track.track_id, 0) + 1
             if seen[track.track_id] < history or not frame.boxes:
                 continue
-            box = min(frame.boxes, key=lambda name: np.linalg.norm(frame.boxes[name] - track.position))
-            if np.linalg.norm(frame.boxes[box] - track.position) > max_match:
+            # the box it follows: the nearest one at the time of the detection
+            at_detection = {name: _true_position(frames, times, name, track.timestamp) for name in frame.boxes}
+            at_detection = {name: p if p is not None else frame.boxes[name] for name, p in at_detection.items()}
+            box = min(at_detection, key=lambda name: np.linalg.norm(at_detection[name] - track.position))
+            if np.linalg.norm(at_detection[box] - track.position) > max_match:
                 continue
             for i, horizon in enumerate(horizons):
                 target = _true_position(frames, times, box, frame.time + horizon)
