@@ -37,10 +37,10 @@ def placed_freely(world, box, region) -> bool:
 
 def test_single_robot_sorts_every_box_with_ground_truth(physics_world):
     world = physics_world(speed=0.1, spacing=1.2, color_weights=COLORED, seed=0)    # a colored box every 12 s
-    stats = run_single_robot(world, get_detector("gt", world), duration=60.0)
+    stats = run_single_robot(world, get_detector("gt", world), duration=65.0)   # kinematic: 60 s; a physical pick and
     print(f"{stats.sorted_correctly} of {len(stats.events)} sorted, {stats.missed} missed, "
           f"failed stages {[e.failed_stage for e in stats.events if not e.success]}")
-    assert len(stats.events) == 5 and stats.sorted_correctly == 5            # as on the kinematic backend
+    assert len(stats.events) == 5 and stats.sorted_correctly == 5     # place takes about 2 s longer (squeeze, settling)
     assert stats.failed == 0 and stats.missed == 0
 
 
