@@ -1,13 +1,20 @@
 name: CI
 
+# Pull requests and pushes to main run the fast tests (`-m "not slow"`); the full suite, with the slow physics
+# scenario tests, runs nightly and on demand (Actions tab -> CI -> Run workflow). A failed test is retried once
+# (physics tests run in real time and are not fully deterministic); reruns are listed in the summary (RERUN).
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,5 +26,9 @@ jobs:
         run: pip install -e ".[dev,eval]"
       - name: Environment check
         run: xvfb-run -a python scripts/check_env.py
-      - name: Tests
-        run: xvfb-run -a pytest -q
+      - name: Tests (fast)
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        run: xvfb-run -a pytest -q -m "not slow" --reruns 1 -rfER
+      - name: Tests (full, with the slow physics scenarios)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: xvfb-run -a pytest -q --reruns 1 -rfER

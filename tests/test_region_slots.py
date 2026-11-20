@@ -22,6 +22,7 @@ def tilt(frame) -> float:
     return float(np.degrees(np.arccos(np.clip(frame.getRotationMatrix()[2, 2], -1, 1))))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("robot_id, region, pick_x", [(1, "region_A", -0.3), (1, "region_B", -0.3), (2, "bin_gray", 0.6)])
 def test_region_fills_slot_by_slot_and_reports_full(robot_id, region, pick_x):
     """At least 5 boxes (the issue): sometimes the last free slot cannot be planned (region B, bin), then the box is

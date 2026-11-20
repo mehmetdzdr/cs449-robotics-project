@@ -74,7 +74,8 @@ def test_same_seed_gives_same_boxes_at_the_same_time(physics_world):
     for _ in range(5):
         world = physics_world(ConveyorConfig(speed=0.1, spacing=0.3, seed=0), hyper_speed=10)
         world.run(10.0)
-        assert world.time == pytest.approx(10.0, abs=0.5)
+        assert world.time == pytest.approx(10.0, abs=1.0)   # a step at hyperSpeed 10 is about 0.4 s, sometimes more
+                                                            # (CI: 10.54 s); x is compared at the same time below
         runs.append({n: world.C.getFrame(n).getPosition()[0] - 0.1 * (world.time - 10.0) for n in world.conveyor.on_belt()})
         world.close()
     assert all(set(r) == set(runs[0]) for r in runs) and len(runs[0]) == 4

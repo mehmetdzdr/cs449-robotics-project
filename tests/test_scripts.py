@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.slow   # physics scenarios in real time: nightly / on demand in CI (#97)
+
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 
 
