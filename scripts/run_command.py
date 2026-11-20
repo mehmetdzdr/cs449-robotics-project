@@ -26,9 +26,9 @@ parser.add_argument("--view", action="store_true", help="show the RAI viewer")
 parser.add_argument("--video", metavar="PATH", help="save the top-camera view as an mp4")
 args = parser.parse_args()
 
-world = World(ConveyorConfig(speed=args.speed, spacing=args.spacing, seed=args.seed))
-camera = Camera(world.C)
-detect = get_detector(args.detector, world, camera)
+world = World(ConveyorConfig(speed=args.speed, spacing=args.spacing, seed=args.seed), physics=True)
+camera = Camera(world.C)                 # video: the synced state, rendered every step (BotOp images are 2 per s)
+detect = get_detector(args.detector, world)   # on BotOp images
 writer = cv2.VideoWriter(args.video, cv2.VideoWriter_fourcc(*"mp4v"), round(1 / world.dt), (1280, 720)) if args.video else None
 
 
@@ -57,3 +57,4 @@ for text in args.commands or typed_commands():
 if writer:
     writer.release()
     print(f"saved {args.video}")
+world.close()

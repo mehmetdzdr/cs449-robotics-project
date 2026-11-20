@@ -21,7 +21,7 @@ parser.add_argument("--view", action="store_true", help="show the RAI viewer")
 parser.add_argument("--video", metavar="PATH", help="save the top-camera view as an mp4")
 args = parser.parse_args()
 
-world = World(ConveyorConfig(speed=args.speed, spacing=args.spacing, seed=args.seed))
+world = World(ConveyorConfig(speed=args.speed, spacing=args.spacing, seed=args.seed), physics=True)
 camera = writer = None
 if args.video:
     camera = Camera(world.C)
@@ -40,3 +40,4 @@ if writer:
     writer.release()
     print(f"saved {args.video}")
 print(f"t = {world.time:.1f} s, boxes on belt: {len(world.conveyor.on_belt())}, missed: {world.conveyor.missed}")
+world.close()

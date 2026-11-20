@@ -1,6 +1,6 @@
 """Clear-and-sort: a gray box right in front of or behind a wanted box blocks Robot 1's fingers, which close
 along the belt. Robot 2 takes the gray box away first (grasping it across the belt), then Robot 1 sorts."""
-from conveyor_sort.coordination.allocation import BLOCK_X, BLOCK_Y, LEAD_TIME, MAX_TRACK_GAP, MIN_TRACK_AGE
+from conveyor_sort.coordination.allocation import BLOCK_X, BLOCK_Y, LEAD_TIME, MIN_TRACK_AGE, max_track_gap
 from conveyor_sort.interfaces import Assignment, BoxColor, Track
 from conveyor_sort.planning.reach import can_pick, is_reachable
 from conveyor_sort.sim.regions import DEFAULT_TARGET
@@ -36,10 +36,17 @@ def plan_clear_and_sort(world: World, tracks: list[Track], first_seen: dict[int,
 
     Robot 2 grasps the gray box at the first of the positions `CLEAR_XS` that works for both robots,
     Robot 1 the wanted box `CLEAR_DELAY` later.
+
+    Not on the physics backend (always None there: the pair is left alone). The physical grasp keeps Robot 2 at
+    the belt 2.2 s longer, and both arms work at the same spot: with CLEAR_DELAY Robot 2 lifted into Robot 1's
+    path (7 cm arm penetration), with 2.2 or 3.2 s more Robot 1 could not plan its pick past Robot 2's arm. Clearing
+    under physics: #101, #102.
     """
+    if world.bot is not None:
+        return None
     def usable(track: Track) -> bool:
         return (world.time >= blocked.get(track.track_id, 0.0) and world.time - first_seen[track.track_id] >= MIN_TRACK_AGE
-                and world.time - track.timestamp <= MAX_TRACK_GAP and track.velocity[0] > 0)
+                and world.time - track.timestamp <= max_track_gap(world) and track.velocity[0] > 0)
 
     for wanted in tracks:
         if wanted.color not in colors or not usable(wanted):

@@ -37,14 +37,15 @@ parser.add_argument("--video", metavar="PATH", help="save the top-camera view as
 args = parser.parse_args()
 
 if args.scene == "clear-and-sort":
-    world = World(ConveyorConfig(speed=0.05, max_boxes=0))
+    world = World(ConveyorConfig(speed=0.05, max_boxes=0), physics=True)
     world.conveyor.spawn_box(BoxColor.RED, x=-0.9, y=0.0)
     world.conveyor.spawn_box(BoxColor.GRAY, x=-0.82, y=0.0)
     args.duration = min(args.duration, 45.0)
 else:
-    world = World(ConveyorConfig(speed=args.speed, spacing=args.spacing, seed=args.seed, blocked_pairs=args.blocked_pairs))
-camera = Camera(world.C)
-detect = get_detector(args.detector, world, camera)
+    world = World(ConveyorConfig(speed=args.speed, spacing=args.spacing, seed=args.seed, blocked_pairs=args.blocked_pairs),
+                  physics=True)
+camera = Camera(world.C)                 # video: the synced state, rendered every step (BotOp images are 2 per s)
+detect = get_detector(args.detector, world)   # on BotOp images
 writer = cv2.VideoWriter(args.video, cv2.VideoWriter_fourcc(*"mp4v"), round(1 / world.dt), (1280, 720)) if args.video else None
 
 
@@ -68,3 +69,5 @@ if len(roles) == 2:
     print(f"shared area: {stats.conflicts} conflicts, {stats.waiting_time:.1f} s waiting")
 if stats.clear_and_sort:
     print(f"clear-and-sort: {sum(stats.clear_and_sort)} of {len(stats.clear_and_sort)} succeeded")
+print(f"arms: closest approach {stats.min_arm_distance * 100:.1f} cm, {len(stats.arm_contacts)} contacts")
+world.close()

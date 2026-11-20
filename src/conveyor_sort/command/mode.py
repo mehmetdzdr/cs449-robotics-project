@@ -73,7 +73,8 @@ class CommandMode:
                 self._step()
             result = task.result
             if result.success:
-                self.last_placed[command.target_region] = result.box
+                if world.bot is None:          # physics: regions hold several boxes (slots, #93)
+                    self.last_placed[command.target_region] = result.box
             correct = (result.success and world.conveyor.colors[result.box] == command.color
                        and region_contains(world.C, command.target_region, world.C.getFrame(result.box).getPosition()))
             return CommandResult(command, result.success, correct, assignment.robot_id, result.box,
