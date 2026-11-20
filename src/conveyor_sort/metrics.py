@@ -33,6 +33,7 @@ class ExperimentConfig:
     duration: float | None = None         # simulation time [s]; None: until the last box has passed the belt
     mode: str = "single"                  # "single", "fixed" or "coordinated" (see MODES)
     blocked_pairs: float = 0.0            # share of spawns that are a gray box right in front of a colored one
+    physics: bool = False                 # BotOp physics backend (friction grasp, physical place) instead of kinematic
 
 
 def load_config(path: str | Path) -> ExperimentConfig:
@@ -61,6 +62,16 @@ def summarize(stats: SortingStats, boxes: int, duration: float) -> dict[str, flo
         "waiting_time": stats.waiting_time,                                     # robot time idle for that reason [s]
         "clear_and_sort_attempts": len(stats.clear_and_sort),
         "clear_and_sort_success_rate": float(np.mean(stats.clear_and_sort)) if stats.clear_and_sort else np.nan,
+        "grasp_failures": stats.failures["grasp"],                              # fingers closed on nothing
+        "slips": stats.failures["slip"],                                        # box did not rise with the gripper
+        "drops": stats.failures["drop"],                                        # box lost during transport
+        "dropped_on": json.dumps(dict(stats.drops)),                            # where slipped / dropped boxes ended
+        "other_failures": sum(n for stage, n in stats.failures.items() if stage not in ("grasp", "slip", "drop")),
+        "failures": json.dumps(dict(stats.failures)),                           # failed attempts per stage
+        "tracking_error_mean": float(np.mean(stats.tracking_errors)) if stats.tracking_errors else np.nan,   # [m]
+        "tracking_error_max": max(stats.tracking_errors, default=np.nan),
+        "min_arm_distance": stats.min_arm_distance,                             # physics backend [m]
+        "arm_contacts": len(stats.arm_contacts),
     }
 
 
@@ -71,15 +82,18 @@ def run_experiment(config: ExperimentConfig, on_step: Callable[[World], None] | 
         raise ValueError(f"unknown mode '{config.mode}'")
     roles, clear_and_sort = MODES[config.mode]
     world = World(ConveyorConfig(config.speed, config.spacing, color_weights=weights, seed=config.seed,
-                                 max_boxes=config.boxes, blocked_pairs=config.blocked_pairs))
-    detect = get_detector(config.detector, world)
-    belt = world.conveyor.geometry
-    duration = config.duration or ((config.boxes - 1) * config.spacing + belt.x_end - belt.x_start) / config.speed + FINISH_TIME
-    stats = run_robots(world, detect, duration, roles, on_step, clear_and_sort)
-    record = asdict(config) | {"duration": duration} | summarize(stats, world.conveyor.spawned, duration)
-    record["color_weights"] = json.dumps(config.color_weights)   # one CSV cell
-    record["blocked_pairs_spawned"] = world.conveyor.pairs
-    return record
+                                 max_boxes=config.boxes, blocked_pairs=config.blocked_pairs), physics=config.physics)
+    try:
+        detect = get_detector(config.detector, world)
+        belt = world.conveyor.geometry
+        duration = config.duration or ((config.boxes - 1) * config.spacing + belt.x_end - belt.x_start) / config.speed + FINISH_TIME
+        stats = run_robots(world, detect, duration, roles, on_step, clear_and_sort)
+        record = asdict(config) | {"duration": duration} | summarize(stats, world.conveyor.spawned, duration)
+        record["color_weights"] = json.dumps(config.color_weights)   # one CSV cell
+        record["blocked_pairs_spawned"] = world.conveyor.pairs
+        return record
+    finally:
+        world.close()
 
 
 def append_csv(path: str | Path, record: dict) -> None:
