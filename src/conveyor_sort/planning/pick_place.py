@@ -10,7 +10,7 @@ from conveyor_sort.physics.grasping import (SLIP_TOLERANCE, SQUEEZE_SETTLE, SQUE
                                             ignoring, planning_view)
 from conveyor_sort.planning.execute import follow_path, grasp, release
 from conveyor_sort.planning.pick import Plan, plan_home, plan_lift, plan_moving_pick, plan_place
-from conveyor_sort.sim.regions import SLOTS, free_slot, region_contains, slot_position
+from conveyor_sort.sim.regions import SLOTS, free_slot, free_slots, region_contains, slot_position
 from conveyor_sort.sim.scene import ROBOT_PREFIX
 from conveyor_sort.sim.world import World
 
@@ -172,12 +172,15 @@ class PickPlaceTask:
             return
         placed, slot = False, None
         if result.failed_stage is None:
-            slot = free_slot(C, region, [b for b in world.conveyor.colors if b != box])
-            if slot is None:
+            slots = free_slots(C, region, [b for b in world.conveyor.colors if b != box])
+            if not slots:
                 result.failed_stage = "full"
             else:
                 with planning_view(world, robot, box):
-                    place = plan_place(C, robot, box, region, clearance=self.drop, offset=SLOTS[slot])
+                    for slot in slots:       # the first free slot whose place can be planned (Robot 2 into the bin:
+                        place = plan_place(C, robot, box, region, clearance=self.drop, offset=SLOTS[slot])
+                        if place.feasible:   # some slots next to boxes already there could not be planned)
+                            break
                 placed = yield from run("place", place, PLACE_TIME)
         # release: the box is on its own now (after a failure: back on the belt or wherever it fell)
         yield from let_go(box)
