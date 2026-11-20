@@ -79,7 +79,8 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         correct = (result.success and DEFAULT_TARGET[world.conveyor.colors[result.box]] == region
                    and region_contains(world.C, region, world.C.getFrame(result.box).getPosition()))
         if result.success:
-            last_placed[region] = result.box
+            if world.bot is None:              # physics: regions hold several boxes (slots, #93)
+                last_placed[region] = result.box
         stats.events.append(SortEvent(world.time, track.color, region, result.success, correct,
                                       result.failed_stage, result.planning_time, robot_id))
         if track.track_id == pair.get("gray"):

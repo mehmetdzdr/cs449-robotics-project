@@ -9,6 +9,7 @@ from conveyor_sort.sim.world import World
 LEAD_TIME = 3.0        # time from the decision to the grasp [s]
 MIN_TRACK_AGE = 1.0    # a track must have been followed this long before it is picked (velocity estimate settled) [s]
 MAX_TRACK_GAP = 0.2    # ... and must have been seen this recently [s]
+MAX_TRACK_GAP_BOTOP = 0.7   # ... on the physics backend: BotOp renders a new camera image only every 0.35 to 0.5 s (#94)
 PICK_X = {1: (-1.1, 0.2), 2: (0.4, 1.1)}   # part of the belt (x) where each robot picks [m]; Robot 2 can reach from -0.2, but
 # every box it could pick in the shared area it can also pick later outside of it, without blocking Robot 1
 # The fingers close along the belt: a neighbour closer than BLOCK_X in front of or behind a box, in the same lane
@@ -26,6 +27,11 @@ SHARED_ROLES = {1: COLORED, 2: (BoxColor.GRAY, BoxColor.GREEN)}    # region B is
 
 def uses_shared_area(pick_x: float, region: str) -> bool:
     return region == SHARED_REGION or SHARED_X[0] < pick_x < SHARED_X[1]
+
+
+def max_track_gap(world: World) -> float:
+    """How recently a track must have been seen to be picked, for this world's backend [s]."""
+    return MAX_TRACK_GAP_BOTOP if world.bot is not None else MAX_TRACK_GAP
 
 
 @dataclass
@@ -61,7 +67,7 @@ def allocate(world: World, tracks: list[Track], first_seen: dict[int, float], bl
             if (track.color in roles[robot_id] and DEFAULT_TARGET[track.color] not in busy_regions
                     and world.time >= blocked.get(track.track_id, 0.0)
                     and world.time - first_seen[track.track_id] >= MIN_TRACK_AGE
-                    and world.time - track.timestamp <= MAX_TRACK_GAP and x_min <= x <= x_max):
+                    and world.time - track.timestamp <= max_track_gap(world) and x_min <= x <= x_max):
                 pairs.append(((x_max - x) / max(track.velocity[0], 1e-6), robot_id, track))
 
     assignments: dict[int, Assignment] = {}

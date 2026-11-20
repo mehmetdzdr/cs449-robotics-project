@@ -1,7 +1,7 @@
 """Command mode: choose the box and the robot that carry out a user `Command`."""
 import numpy as np
 
-from conveyor_sort.coordination.allocation import LEAD_TIME, MAX_TRACK_GAP, MIN_TRACK_AGE, PICK_X
+from conveyor_sort.coordination.allocation import LEAD_TIME, MIN_TRACK_AGE, PICK_X, max_track_gap
 from conveyor_sort.interfaces import Assignment, Command, Track
 from conveyor_sort.planning.reach import can_pick
 from conveyor_sort.sim.regions import REGION_ROBOTS
@@ -31,7 +31,7 @@ def select(world: World, command: Command, tracks: list[Track], first_seen: dict
             position = track.predict(pick_time)
             if (track.color == command.color and world.time >= (blocked or {}).get(track.track_id, 0.0)
                     and world.time - first_seen[track.track_id] >= MIN_TRACK_AGE
-                    and world.time - track.timestamp <= MAX_TRACK_GAP and x_min <= position[0]
+                    and world.time - track.timestamp <= max_track_gap(world) and x_min <= position[0]
                     and (x_max - position[0]) / max(track.velocity[0], 1e-6) >= MIN_TIME_LEFT):
                 candidates.append((float(np.linalg.norm(position[:2] - base[:2])), robot_id, track, position))
 
