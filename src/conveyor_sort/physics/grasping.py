@@ -13,10 +13,11 @@ PENETRATION = 0.003   # planning_view leaves out boxes that penetrate a non-robo
 SLIP_TOLERANCE = 0.02  # the box may rise this much less than the gripper during the lift before it counts as a slip [m]
 
 
-def box_at_gripper(world, robot_id: int) -> str | None:
-    """The box on the belt whose centre is closest to the gripper centre, if within GRASP_RADIUS."""
+def box_at_gripper(world, robot_id: int, boxes: list[str] | None = None) -> str | None:
+    """The box on the belt (or of `boxes`) whose centre is closest to the gripper centre, if within GRASP_RADIUS."""
     gripper = world.C.getFrame(f"{ROBOT_PREFIX[robot_id]}gripper").getPosition()
-    distances = {b: np.linalg.norm(world.C.getFrame(b).getPosition() - gripper) for b in world.conveyor.on_belt()}
+    boxes = world.conveyor.on_belt() if boxes is None else boxes
+    distances = {b: np.linalg.norm(world.C.getFrame(b).getPosition() - gripper) for b in boxes}
     box = min(distances, key=distances.get, default=None)
     return box if box is not None and distances[box] < GRASP_RADIUS else None
 

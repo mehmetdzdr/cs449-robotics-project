@@ -56,15 +56,17 @@ class PickPlaceTask:
     while the arm retreats and goes home. `result.place_error` (box centre to slot centre in xy) and
     `result.tilt` are measured at the end; failed stage "release": the box is not upright (tilt >= MAX_TILT) or
     not inside the region; "full": every slot is taken (checked before the arm moves). `pick_only=True` ends
-    after the lift (success = the box is held).
+    after the lift (success = the box is held). `box`: the box to pick when it is not on the belt (a box in the
+    buffer, #101; `track` then stands still where it lies).
     """
 
     def __init__(self, world: World, assignment: Assignment, track: Track, across_belt: bool = False,
-                 pick_only: bool = False, drop: float = 0.0):
+                 pick_only: bool = False, drop: float = 0.0, box: str | None = None):
         self.assignment = assignment
         self.across_belt = across_belt     # grasp on the box faces at -y / +y (see plan_moving_pick)
         self.pick_only = pick_only         # physics backend: end after the lift (success = the box is held)
         self.drop = drop                   # physics backend: release the box this much higher than resting [m]
+        self.box = box                     # physics backend: pick this box (not on the belt)
         self.result = PickPlaceResult(False, 0.0, None, None)
         self._world, self._track = world, track
         self._picking, self._update, self._replans = False, None, 0   # physics backend: see observe()
@@ -92,8 +94,8 @@ class PickPlaceTask:
         planned for. Predicted more than REPLAN_DISTANCE away at pick time (pushed by a finger or a neighbour), the
         pick is re-planned from where the arm is, if at least MIN_REPLAN_TIME is left; not seen for LOST_TIME (pushed
         off the belt), the attempt ends with "lost" and the arm goes home."""
-        if not self._picking or self._update is not None:
-            return
+        if not self._picking or self._update is not None or self.box is not None:   # a box off the belt (the
+            return                                                                  # buffer) is not tracked
         world, pick_time = self._world, self.assignment.pick_time
         track = next((t for t in tracks if t.track_id == self._track.track_id), None)
         if track is None or world.time - track.timestamp > LOST_TIME:
@@ -261,7 +263,7 @@ class PickPlaceTask:
                 return
             track, self._replans = update, self._replans + 1   # displaced: re-plan from where the arm is now
         self._picking = False
-        box = box_at_gripper(world, robot)
+        box = box_at_gripper(world, robot, None if self.box is None else [self.box])
         if box is not None:
             world.conveyor.hold(box)
         world.arms.set_fingers(robot, FINGER_SQUEEZE, SQUEEZE_TIME)

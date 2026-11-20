@@ -1,8 +1,9 @@
-"""Sorting loop, command mode and clear-and-sort on the physics backend (#96).
+"""Sorting loop, command mode and clear-and-sort on the physics backend (#96; clearing: #101).
 
 Physics counterparts of the scenario tests in test_sorting.py, test_command_mode.py and test_clear_and_sort.py.
 Tolerances differ where noted: BotOp's simulation runs in real time, so two runs are not identical.
 """
+import numpy as np
 import pytest
 
 from conveyor_sort.command.mode import CommandMode
@@ -10,7 +11,7 @@ from conveyor_sort.coordination.allocation import FIXED_ROLES
 from conveyor_sort.interfaces import BoxColor, Command
 from conveyor_sort.perception.detectors import get_detector
 from conveyor_sort.sim.conveyor import ConveyorConfig
-from conveyor_sort.sim.regions import region_contains
+from conveyor_sort.sim.regions import BUFFER, region_contains
 from conveyor_sort.sim.world import World
 from conveyor_sort.sorting import run_robots, run_single_robot
 
@@ -96,11 +97,44 @@ def test_timeout_when_no_box_of_the_color_arrives(physics_world):
     assert result.time == pytest.approx(10.0, abs=2 * world.dt)               # steps are dt or a little longer
 
 
-def test_blocked_pair_is_left_alone_by_clear_and_sort(physics_world):
-    """Clear-and-sort is not available on physics (see plan_clear_and_sort): the pair travels on, no collision."""
-    world = physics_world(speed=0.05, max_boxes=0)
-    world.conveyor.spawn_box(BoxColor.RED, x=-0.9, y=0.0)
-    world.conveyor.spawn_box(BoxColor.GRAY, x=-0.82, y=0.0)
+def no_box_held(world) -> bool:
+    fingers = world.C.getJointState()[list(world.fingers.values())]
+    return not world.conveyor.held and bool(np.all(fingers > 0.035))
+
+
+def test_clearing_through_the_buffer(physics_world):
+    """#101: a red box with gray boxes touching it in front and on the far side (both grasp axes blocked), in
+    Robot 1's zone. Robot 1 puts one gray box into the buffer, then sorts the red box on the freed axis; Robot 2
+    then takes the gray box from the buffer to the bin (with the other arm idle)."""
+    world = physics_world(speed=0.03, max_boxes=0)
+    red = world.conveyor.spawn_box(BoxColor.RED, x=-0.9, y=0.0)
+    grays = [world.conveyor.spawn_box(BoxColor.GRAY, x=-0.839, y=0.0),
+             world.conveyor.spawn_box(BoxColor.GRAY, x=-0.9, y=0.061)]
     stats = run_robots(world, get_detector("gt", world), 45.0, FIXED_ROLES, clear_and_sort=True)
-    assert stats.clear_and_sort == [] and stats.arm_contacts == []
-    assert all(e.color == BoxColor.GRAY for e in stats.events)                # at most Robot 2 takes the gray box
+    print([(round(e.time, 1), e.robot_id, e.color.name, e.region, e.failed_stage) for e in stats.events],
+          stats.clear_and_sort, f"min arm distance {stats.min_arm_distance:.3f} m")
+    assert stats.clear_and_sort == [True] and stats.arm_contacts == []
+    assert [(e.robot_id, e.color, e.region, e.success) for e in stats.events if e.robot_id == 1][:2] == [
+        (1, BoxColor.GRAY, BUFFER, True), (1, BoxColor.RED, "region_A", True)]
+    assert placed_freely(world, red, "region_A")
+    assert any(placed_freely(world, gray, "bin_gray") for gray in grays)     # through the buffer
+    assert not any(region_contains(world.C, BUFFER, world.C.getFrame(g).getPosition()) for g in grays)
+    assert no_box_held(world)
+
+
+def test_robot_2_removes_a_colored_blocker_in_its_zone(physics_world):
+    """#101, Robot 2 only zone: a gray box with a red box touching it behind and a gray one on the far side. Robot 2
+    cannot take the red blocker to region A: it puts it into the buffer, then bins the gray box; Robot 1 then takes
+    the red box from the buffer to region A."""
+    world = physics_world(speed=0.02, max_boxes=0)
+    gray = world.conveyor.spawn_box(BoxColor.GRAY, x=0.25, y=0.0)   # upstream of PICK_X: the side box is not
+    red = world.conveyor.spawn_box(BoxColor.RED, x=0.189, y=0.0)    # given to Robot 2 before the job is planned
+    world.conveyor.spawn_box(BoxColor.GRAY, x=0.25, y=0.061)
+    stats = run_robots(world, get_detector("gt", world), 45.0, FIXED_ROLES, clear_and_sort=True)
+    print([(round(e.time, 1), e.robot_id, e.color.name, e.region, e.failed_stage) for e in stats.events],
+          stats.clear_and_sort, f"min arm distance {stats.min_arm_distance:.3f} m")
+    assert stats.clear_and_sort == [True] and stats.arm_contacts == []
+    assert [(e.robot_id, e.color, e.region, e.success) for e in stats.events if e.robot_id == 2][:2] == [
+        (2, BoxColor.RED, BUFFER, True), (2, BoxColor.GRAY, "bin_gray", True)]
+    assert placed_freely(world, gray, "bin_gray") and placed_freely(world, red, "region_A")
+    assert no_box_held(world)

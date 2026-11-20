@@ -17,6 +17,11 @@ DEFAULT_TARGET = {
 # which robots can place a box there (robot ids as in interfaces.Assignment)
 REGION_ROBOTS = {"region_A": (1,), "region_B": (1, 2), "region_C": (1,), "bin_gray": (2,)}
 
+# Physics backend, clearing (#101): a blocker that the robot removing it cannot take to its own region is put here,
+# and later taken on by a robot that can. Not a target region (no color goes there, no command names it).
+BUFFER = "buffer"
+BUFFER_ROBOTS = (1, 2)
+
 
 # Physics backend: a region holds up to len(SLOTS) boxes, one per slot (offsets from the region centre [m]).
 # 2 x 3 in the 0.2 m x 0.2 m region: 10 cm apart in x, 7 cm in y. The fingers close along the belt (x) and the place
