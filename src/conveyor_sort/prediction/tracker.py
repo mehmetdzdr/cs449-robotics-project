@@ -82,9 +82,9 @@ class Tracker:
         # all (track, detection) pairs of equal color within the gate, closest first
         pairs = []
         for i, state in enumerate(self._states):
-            predicted = state.to_track().predict(time)
-            for j, det in enumerate(detections):
-                distance = np.linalg.norm(det.position - predicted)
+            track = state.to_track()
+            for j, det in enumerate(detections):    # predicted to when the image was taken (BotOp's lags, #94)
+                distance = np.linalg.norm(det.position - track.predict(det.timestamp))
                 if det.color == state.color and distance <= self.max_distance:
                     pairs.append((distance, i, j))
         matched_tracks, matched_dets = set(), set()
