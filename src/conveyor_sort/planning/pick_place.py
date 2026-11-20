@@ -19,13 +19,16 @@ from conveyor_sort.sim.world import World
 LIFT_TIME, PLACE_TIME, RETREAT_TIME, HOME_TIME = 1.0, 3.0, 1.0, 2.0
 MAX_TILT = 10.0   # physics backend: a placed box must be upright within this [deg]
 DROP_DISTANCE = 0.04   # physics backend: a carried box this far from the gripper centre has been dropped [m]
+REPLAN_DISTANCE = 0.015   # physics backend: the box predicted this far from where the pick aims: re-plan [m]
+MIN_REPLAN_TIME = 0.5     # ... if at least this much time is left before the grasp [s]
+LOST_TIME = 1.2           # ... a box not seen for this long has left the belt (BotOp: an image every 0.5 s) [s]
 
 
 @dataclass
 class PickPlaceResult:
     success: bool
     planning_time: float            # summed KOMO solve time of all stages [s]
-    failed_stage: str | None        # "pick", "grasp", "slip", "lift", "place", "drop", "release", "retreat", "home",
+    failed_stage: str | None        # "pick", "lost", "grasp", "slip", "lift", "place", "drop", "release", "retreat", "home",
                                     # "full", or None on success
     box: str | None                 # frame name of the grasped box
     place_error: float | None = None   # physics backend: placed box centre to its slot centre in xy [m]
@@ -61,11 +64,40 @@ class PickPlaceTask:
         self.pick_only = pick_only         # physics backend: end after the lift (success = the box is held)
         self.drop = drop                   # physics backend: release the box this much higher than resting [m]
         self.result = PickPlaceResult(False, 0.0, None, None)
+        self._world, self._track = world, track
+        self._picking, self._update, self._replans = False, None, 0   # physics backend: see observe()
         self._steps = self._run_physical(world, assignment, track) if world.bot is not None else \
             self._run(world, assignment, track)
 
     def advance(self) -> bool:
         return next(self._steps, False)
+
+    @staticmethod
+    def _box_near(world: World, track: Track) -> str | None:
+        """The box on the belt at the track's position (within 3 cm), as the planner sees it in C."""
+        boxes = {b: np.linalg.norm(world.C.getFrame(b).getPosition() - track.position) for b in world.conveyor.on_belt()}
+        box = min(boxes, key=boxes.get, default=None)
+        return box if box is not None and boxes[box] < 0.03 else None
+
+    @property
+    def replans(self) -> int:
+        """How often the approach was re-planned because the box was displaced (#104)."""
+        return self._replans
+
+    def observe(self, tracks: list[Track]) -> None:
+        """Physics backend, while the arm approaches the box: compare its current track with the one the pick was
+        planned for. Predicted more than REPLAN_DISTANCE away at pick time (pushed by a finger or a neighbour), the
+        pick is re-planned from where the arm is, if at least MIN_REPLAN_TIME is left; not seen for LOST_TIME (pushed
+        off the belt), the attempt ends with "lost" and the arm goes home."""
+        if not self._picking or self._update is not None:
+            return
+        world, pick_time = self._world, self.assignment.pick_time
+        track = next((t for t in tracks if t.track_id == self._track.track_id), None)
+        if track is None or world.time - track.timestamp > LOST_TIME:
+            self._update = "lost"
+        elif (np.linalg.norm(track.predict(pick_time) - self._track.predict(pick_time)) > REPLAN_DISTANCE
+              and pick_time - world.time > MIN_REPLAN_TIME):
+            self._update, self._track = track, track
 
     def _run(self, world: World, assignment: Assignment, track: Track) -> Iterator[bool]:
         C, robot, result = world.C, assignment.robot_id, self.result
@@ -165,10 +197,35 @@ class PickPlaceTask:
             result.failed_stage = "full"                       # reported, not overfilled; the arm has not moved
             return
         world.arms.finger_target[robot] = FINGER_OPEN         # the pick path opens the fingers on the way
-        with planning_view(world, robot):
-            pick = self._plan_pick(world, assignment, track)
-        if not (yield from run("pick", pick, assignment.pick_time - world.time)):
-            return
+        self._picking = True                                   # observe() may re-plan the approach (#104)
+        while True:
+            # a re-plan starts near the box, with the fingers already around it: the planner, which takes the box as a
+            # static obstacle where it is now, would find the path that follows it in collision (seen: infeasible)
+            target = self._box_near(world, track) if self._replans else None
+            with planning_view(world, robot), ignoring(C, target):
+                pick = self._plan_pick(world, assignment, track)
+            result.planning_time += pick.planning_time
+            if not pick.feasible:
+                result.failed_stage = "pick"
+                if self._replans:                              # the arm has moved: back home, tried again later
+                    self._picking = False
+                    yield from leave(None)
+                return
+            update = None
+            for _ in follow_path(world, pick.path, assignment.pick_time - world.time, robot):
+                update, self._update = self._update, None
+                if update is not None:
+                    break
+                yield True
+            if update is None:
+                break                                          # at the box
+            if update == "lost":                               # the box left the belt (pushed off): give up
+                self._picking = False
+                result.failed_stage = "lost"
+                yield from leave(None)
+                return
+            track, self._replans = update, self._replans + 1   # displaced: re-plan from where the arm is now
+        self._picking = False
         box = box_at_gripper(world, robot)
         if box is not None:
             world.conveyor.hold(box)

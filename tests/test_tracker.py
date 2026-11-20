@@ -113,3 +113,41 @@ def test_kalman_compared_with_constant_velocity_fit(frames):
     assert kalman < cv * 1.1
     if frames >= 40:
         assert kalman < cv * 0.75
+
+
+# ---------------------------------------------------------------- displaced boxes (#104)
+
+def track_with_jump(predictor: str, jump: np.ndarray, noise: float = 0.0):
+    """A box on the belt (0.1 m/s), detected every 0.05 s for 2 s, then displaced by `jump`, then 10 more steps."""
+    rng = np.random.default_rng(0)
+    tracker, ids = Tracker(predictor=predictor), set()
+    for k in range(50):
+        t = 0.05 * k
+        offset = jump if k >= 40 else np.zeros(3)
+        position = np.array([-0.5 + 0.1 * t, 0.2, 0.65]) + offset + np.append(rng.normal(0, noise, 2), 0)
+        tracks = tracker.update([Detection(BoxColor.RED, position, 1.0, t)], t)
+        ids |= {track.track_id for track in tracks if track.timestamp == t}
+    return ids, tracks[-1] if len(tracks) == 1 else max(tracks, key=lambda tr: tr.timestamp)
+
+
+@pytest.mark.parametrize("predictor", ["cv", "kalman"])
+def test_a_box_bumped_by_2_cm_keeps_its_track_and_velocity(predictor):
+    ids, track = track_with_jump(predictor, np.array([0.0, 0.02, 0.0]))
+    truth = np.array([-0.5 + 0.1 * 2.45, 0.22, 0.65])
+    assert len(ids) == 1                                           # followed, no new track
+    assert np.linalg.norm(track.position - truth) < 0.001          # at the new place right away
+    assert np.linalg.norm(track.velocity - [0.1, 0, 0]) < 0.005    # the belt still carries it
+    assert np.linalg.norm(track.predict(4.45) - (truth + [0.2, 0, 0])) < 0.005
+
+
+@pytest.mark.parametrize("predictor", ["cv", "kalman"])
+def test_a_larger_jump_starts_a_new_track(predictor):
+    ids, _ = track_with_jump(predictor, np.array([0.0, 0.08, 0.0]))   # beyond the 5 cm gate
+    assert len(ids) == 2
+
+
+@pytest.mark.parametrize("predictor", ["cv", "kalman"])
+def test_detection_noise_is_no_jump(predictor):
+    """2 mm noise without a displacement: the velocity estimate stays good (no history shifted)."""
+    ids, track = track_with_jump(predictor, np.zeros(3), noise=0.002)
+    assert len(ids) == 1 and np.linalg.norm(track.velocity - [0.1, 0, 0]) < 0.02

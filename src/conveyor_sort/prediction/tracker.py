@@ -1,6 +1,10 @@
 """Multi-object tracker: associates detections over time into tracks with stable IDs and
 estimates each track's velocity with a constant-velocity model: a least-squares fit over a window
-of recent detections (`predictor="cv"`) or a Kalman filter (`predictor="kalman"`)."""
+of recent detections (`predictor="cv"`) or a Kalman filter (`predictor="kalman"`).
+
+Displaced boxes (#104): fingers and neighbours can push a box. A detection more than JUMP from the track's
+prediction (but within the gate `max_distance`) is taken as a displacement, not as motion: the track jumps there
+and keeps its velocity (the belt still carries the box). A larger jump starts a new track."""
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -18,6 +22,10 @@ class _TrackState:
     window: int = 20                                           # number of recent detections used for the fit
 
     def add(self, time: float, position: np.ndarray) -> None:
+        if len(self.times) >= JUMP_HISTORY:                  # before that the velocity is not known well enough
+            residual = position - self.to_track().predict(time)
+            if np.linalg.norm(residual) > JUMP:             # displaced: shift the history, keep the velocity
+                self.positions = [p + residual for p in self.positions]
         self.times.append(time)
         self.positions.append(position)
 
@@ -33,6 +41,8 @@ class _TrackState:
         return Track(self.track_id, self.color, position, velocity, t[-1])
 
 
+JUMP = 0.015               # a detection this far from the prediction is a displaced box (detection noise: 2 mm) [m]
+JUMP_HISTORY = 5           # window fit: jumps are detected from this many detections on
 MEASUREMENT_STD = 0.002    # Kalman: detection noise per axis [m]
 ACCELERATION_STD = 0.01    # Kalman: how much the box velocity may drift [m/s^2]; small, the belt speed is constant
 INITIAL_SPEED_STD = 1.0    # Kalman: the velocity of a new track is unknown [m/s]
@@ -57,10 +67,14 @@ class _KalmanState:
             Q = ACCELERATION_STD**2 * np.array([[dt**4 / 4, dt**3 / 2], [dt**3 / 2, dt**2]])
             self.P = F @ self.P @ F.T + Q                                   # predict
             residual = position - (self.position + self.velocity * dt)
-            gain = self.P[:, 0] / (self.P[0, 0] + MEASUREMENT_STD**2)        # update
-            self.position = self.position + self.velocity * dt + gain[0] * residual
-            self.velocity = self.velocity + gain[1] * residual
-            self.P = self.P - np.outer(gain, self.P[0])
+            if np.linalg.norm(residual) > JUMP + 3 * np.sqrt(self.P[0, 0]):  # displaced: jump, keep the velocity
+                # (the uncertainty is large while the velocity of a new track is still unknown)
+                self.position = np.array(position, dtype=float)
+            else:
+                gain = self.P[:, 0] / (self.P[0, 0] + MEASUREMENT_STD**2)    # update
+                self.position = self.position + self.velocity * dt + gain[0] * residual
+                self.velocity = self.velocity + gain[1] * residual
+                self.P = self.P - np.outer(gain, self.P[0])
         self.times.append(time)
 
     def to_track(self) -> Track:
