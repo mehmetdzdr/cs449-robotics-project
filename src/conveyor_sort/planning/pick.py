@@ -90,18 +90,19 @@ def _solve(komo: ry.KOMO) -> Plan:
     return Plan(path, bool(result.feasible), time.perf_counter() - start)
 
 
-def plan_place(C: ry.Config, robot_id: int, box: str, region: str, steps: int = 20, clearance: float = 0.0) -> Plan:
-    """Plan carrying the grasped box to the centre of `region` and setting it down (vertical descent at the end),
-    `clearance` above its resting height."""
+def plan_place(C: ry.Config, robot_id: int, box: str, region: str, steps: int = 20, clearance: float = 0.0,
+               offset: tuple[float, float] = (0.0, 0.0)) -> Plan:
+    """Plan carrying the grasped box to the centre of `region` (or `offset` from it, e.g. a slot) and setting it
+    down (vertical descent at the end), `clearance` above its resting height."""
     gripper = f"{ROBOT_PREFIX[robot_id]}gripper"
-    resting = [0, 0, C.getFrame(region).getSize()[2] / 2 + BOX_SIZE / 2 + 0.001 + clearance]   # box centre, region frame
+    resting = [*offset, C.getFrame(region).getSize()[2] / 2 + BOX_SIZE / 2 + 0.001 + clearance]   # box centre, region frame
     komo = _komo(C, steps)
     komo.addControlObjective([], 2, 1e0)
     komo.addControlObjective([], 0, 1e-2)
     komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
     komo.addObjective([], ry.FS.jointLimits, [], ry.OT.ineq)
     komo.addObjective([], ry.FS.vectorZ, [gripper], ry.OT.eq, [1e1], [0, 0, 1])                # keep the box upright
-    komo.addObjective([0.8, 1.0], ry.FS.positionRel, [box, region], ry.OT.eq, [[1e1, 0, 0], [0, 1e1, 0]])
+    komo.addObjective([0.8, 1.0], ry.FS.positionRel, [box, region], ry.OT.eq, [[1e1, 0, 0], [0, 1e1, 0]], resting)
     komo.addObjective([1.0], ry.FS.positionRel, [box, region], ry.OT.eq, [1e1], resting)
     komo.addObjective([1.0], ry.FS.qItself, [], ry.OT.eq, [1e1], [], 1)
     return _solve(komo)
