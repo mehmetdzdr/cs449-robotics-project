@@ -71,6 +71,7 @@ class CommandMode:
             self._step()
             while task.advance():
                 self._step()
+                task.observe(self.tracks)      # physics: a box displaced during the approach is aimed at again (#104)
             result = task.result
             if result.success:
                 if world.bot is None:          # physics: regions hold several boxes (slots, #93)

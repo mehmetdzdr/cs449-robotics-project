@@ -187,6 +187,8 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
             stats.min_arm_distance = min(stats.min_arm_distance, distance)
             stats.arm_contacts += [(world.time, a, b) for a, b, _ in contacts]
         tracks[:] = tracker.update(detect(), world.time)
+        for task, _ in tasks.values():     # physics: a box displaced during the approach is aimed at again (#104)
+            task.observe(tracks)
         for track in tracks:
             if track.track_id not in first_seen and failed_boxes:
                 inherit(track)
