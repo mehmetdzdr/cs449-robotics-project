@@ -2,7 +2,8 @@
 
     python evaluation/make_figures.py            (needs matplotlib: pip install -e ".[eval]")
 
-Reads results/{manipulation,manipulation_physics,perception,prediction,prediction_physics,command,command_fast}.csv, written by the benchmark scripts
+Reads results/{manipulation,manipulation_physics,perception,prediction,prediction_physics,command,command_fast,
+command_physics}.csv, written by the benchmark scripts
 in this directory, and writes evaluation/figures/*.png and evaluation/figures/tables.md. A missing CSV is skipped.
 """
 import argparse
@@ -237,6 +238,25 @@ for name, label in (("command.csv", "0.1 m/s, a box every 4 s"), ("command_fast.
 if rows:
     table("Command mode: random commands", ["belt", "commands", "parsed", "correct color", "correct destination", "success rate",
                                             "time mean / max [s]", "Robot 1 / Robot 2"], rows)
+
+# ---------------------------------------------------------------- command mode on physics (#109)
+records = read("command_physics.csv")
+if records:
+    rows = []
+    for speed, blocked in sorted({(r["speed"], r["blocked_pairs"]) for r in records}, key=lambda k: (float(k[1]), float(k[0]))):
+        rs = [r for r in records if (r["speed"], r["blocked_pairs"]) == (speed, blocked)]
+        correct = [r for r in rs if r["correct_color"] == "True" and r["correct_region"] == "True"]
+        times = [float(r["time"]) for r in correct]
+        failures = defaultdict(int)
+        for r in rs:
+            if r not in correct:
+                failures[r["failed_stage"]] += 1
+        rows.append([f"{speed} m/s", "every box blocked" if float(blocked) else "normal", str(len(rs)),
+                     f"{len(correct) / len(rs):.0%}", f"{np.mean(times):.1f} / {np.max(times):.1f}" if times else "-",
+                     ", ".join(f"{k} {v}" for k, v in sorted(failures.items())) or "-",
+                     f"{sum(r['robot'] == '1' for r in rs)} / {sum(r['robot'] == '2' for r in rs)}"])
+    table("Command mode on physics: random commands (a box every 0.4 m; blocked: a gray box 8 cm in front of each colored one)",
+          ["belt", "stream", "commands", "success rate", "time mean / max [s]", "failures", "Robot 1 / Robot 2"], rows)
 
 (args.out / "tables.md").write_text("\n".join(tables), encoding="utf-8")
 print(f"wrote {args.out / 'tables.md'}")
