@@ -54,7 +54,7 @@ class ConveyorConfig:
     seed: int = 0
     max_boxes: int | None = None     # stop spawning after this many boxes (None: endless)
     blocked_pairs: float = 0.0       # probability that a spawn is a gray box with a colored box PAIR_GAP behind it
-    pool: int = 60                   # physics backend: boxes created before the simulation starts (max. spawns)
+    pool: int = 60                   # physics backend: boxes created before the simulation starts (removed ones are reused)
 
 
 PAIR_GAP = 0.08   # distance between the two boxes of a blocked pair [m]: the gray one is in the way of a grasp
@@ -86,6 +86,7 @@ class Conveyor:
         self.colors: dict[str, BoxColor] = {}   # box frame name -> color, for every box in the scene
         self._rng = np.random.default_rng(self.config.seed)
         self._next_id = 0
+        self._removed: list[str] = []            # physics backend: pool boxes taken out again (see remove)
         self._since_spawn = self.config.spacing   # belt travel since the last spawn; first box enters at once
         self.missed = 0                           # boxes that reached the belt end unpicked
         self.pairs = 0                            # blocked pairs spawned so far
@@ -106,8 +107,10 @@ class Conveyor:
             weights = np.array([self.config.color_weights[c] for c in colors], dtype=float)
             color = colors[self._rng.choice(len(colors), p=weights / weights.sum())]
         name = f"box_{self._next_id}"
-        if self.physics and self._next_id >= self.config.pool:
-            raise RuntimeError(f"all {self.config.pool} boxes of the physics pool are used: raise ConveyorConfig.pool")
+        if self.physics and self._next_id >= self.config.pool:   # every pool box has been used: reuse a removed one
+            if not self._removed:
+                raise RuntimeError(f"all {self.config.pool} boxes of the physics pool are in use: raise ConveyorConfig.pool")
+            name = self._removed.pop(0)
         self._next_id += 1
         jitter = self._rng.uniform(-self.config.lateral_jitter, self.config.lateral_jitter)
         y = jitter if y is None else y
@@ -170,6 +173,7 @@ class Conveyor:
         if self.physics:
             self._set_pose(box, _storage_position(int(box.split("_")[1])), [1.0, 0, 0, 0])
             del self.colors[box]
+            self._removed.append(box)       # back in the pool, for spawns once every pool box has been used
             return
         frame = self.C.getFrame(box)
         frame.unLink()
