@@ -12,7 +12,7 @@ from conveyor_sort.interfaces import Assignment, BoxColor, Detection, Track
 from conveyor_sort.physics.contacts import arm_proximity
 from conveyor_sort.planning.pick_place import PickPlaceTask
 from conveyor_sort.prediction.tracker import Tracker
-from conveyor_sort.sim.regions import DEFAULT_TARGET, region_contains
+from conveyor_sort.sim.regions import DEFAULT_TARGET, free_slot, region_contains
 from conveyor_sort.sim.world import World
 
 RETRY_DELAY = 0.5      # a box whose pick could not be planned is tried again after this time [s]
@@ -47,6 +47,7 @@ class SortingStats:
     arm_contacts: list[tuple[float, str, str]] = field(default_factory=list)   # physics backend: (time, frame, frame)
     tracking_errors: list[float] = field(default_factory=list)   # per step and track: distance to its true box [m]
     arm_waits: int = 0         # physics backend: an arm waited for the other one to finish a motion (#141)
+    regions_emptied: int = 0   # physics backend: full regions whose boxes were collected before the next place (#142)
 
     @property
     def sorted_correctly(self) -> int:
@@ -65,6 +66,20 @@ class SortingStats:
     def drops(self) -> Counter:
         """Where slipped and dropped boxes came to rest ("belt", "table", "box", "region")."""
         return Counter(e.dropped_on for e in self.events if e.dropped_on)
+
+
+def collect_if_full(world: World, region: str) -> bool:
+    """Physics backend: if every slot of `region` is taken, its boxes are collected (taken out, as an operator empties
+    a full bin) so that the next box can be placed. Called when a task for the region starts: only one robot works
+    in a region at a time, so no arm is above it. Returns whether the region was emptied."""
+    conveyor = world.conveyor
+    if world.bot is None or free_slot(world.C, region, conveyor.colors) is not None:
+        return False
+    on_belt = set(conveyor.on_belt())
+    for box in [b for b in conveyor.colors if b not in on_belt and b not in conveyor.held
+                and region_contains(world.C, region, world.C.getFrame(b).getPosition())]:
+        conveyor.remove(box)
+    return True
 
 
 def run_robots(world: World, detect: Callable[[], list[Detection]], duration: float,
@@ -145,6 +160,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         track = by_id[assignment.track_id]
         if assignment.target_region in last_placed:   # regions are emptied (box collected) before the next box arrives
             world.conveyor.remove(last_placed.pop(assignment.target_region))
+        stats.regions_emptied += collect_if_full(world, assignment.target_region)   # physics: only when full (#142)
         tasks[assignment.robot_id] = PickPlaceTask(world, assignment, track, across_belt), track
         attempts[assignment.track_id] += 1
 
