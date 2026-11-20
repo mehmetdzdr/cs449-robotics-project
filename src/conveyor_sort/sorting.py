@@ -145,6 +145,10 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
             buffer.append(task.box)                                             # the box is still there, later
             not_before["buffer"] = world.time + RETRY_DELAY
             return
+        if (task.box is not None and not result.success and attempts[track.track_id] < MAX_ATTEMPTS
+                and region_contains(world.C, BUFFER, world.C.getFrame(task.box).getPosition())):
+            buffer.append(task.box)            # fell back into the buffer: tried again
+            not_before["buffer"] = world.time + RETRY_DELAY
         in_job = track.track_id in job_tracks() or track.track_id in pair.values() or task.box is not None
         if result.failed_stage == "pick" and not in_job:   # no plan from here (e.g. box just
             blocked[track.track_id] = world.time + RETRY_DELAY   # entering the workspace): no time was used, try again later
@@ -220,18 +224,22 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         return [robot_id for robot_id in free if robot_id not in reserved and robot_id not in tasks]
 
     def empty_buffer(free: list[int]) -> None:
-        """Physics backend: a free robot takes the oldest buffer box it can take to that box's own region."""
-        if not buffer or world.time < not_before["buffer"]:
+        """Physics backend: a free robot takes the oldest buffer box it can take to that box's own region, only
+        while no other task runs (and nothing else starts meanwhile, see the loop): with the other arm working at
+        the same time the arms came within 5.5 cm and the place into the bin could not be planned (CI, #139)."""
+        if not buffer or world.time < not_before["buffer"] or tasks:
             return
         for robot_id in free:
             box = next((b for b in buffer if robot_id in REGION_ROBOTS[DEFAULT_TARGET[world.conveyor.colors[b]]]), None)
-            if box is None or robot_id in tasks or shared_area_busy():      # the buffer is in the shared area
+            if box is None:
                 continue
             buffer.remove(box)
             color, position = world.conveyor.colors[box], world.C.getFrame(box).getPosition().copy()
             track = Track(-1 - int(box.split("_")[1]), color, position, np.zeros(3), world.time)   # standing still
             assignment = Assignment(robot_id, track.track_id, DEFAULT_TARGET[color], world.time + LEAD_TIME, position)
             tasks[robot_id] = PickPlaceTask(world, assignment, track, box=box), track
+            attempts[track.track_id] += 1
+            return
 
     while world.time < end_time:
         moved: set[int] = set()            # robots that have made their move for this simulation step
@@ -248,6 +256,8 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
                         scheduled.clear()
                         pair.clear()
             free = [robot_id for robot_id in roles if robot_id not in tasks and robot_id not in scheduled]
+            if any(task.box is not None for task, _ in tasks.values()):   # a box is taken from the buffer: the
+                free = []                                                  # other arm waits (see empty_buffer)
             if clear_and_sort and world.bot is not None:
                 free = run_clearing(free)
             if clear_and_sort and world.bot is None and not pair and set(free) >= {1, 2}:

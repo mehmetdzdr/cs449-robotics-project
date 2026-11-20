@@ -105,7 +105,7 @@ def no_box_held(world) -> bool:
 def test_clearing_through_the_buffer(physics_world):
     """#101: a red box with gray boxes touching it in front and on the far side (both grasp axes blocked), in
     Robot 1's zone. Robot 1 puts one gray box into the buffer, then sorts the red box on the freed axis; Robot 2
-    takes the gray box from the buffer to the bin, while Robot 1 is busy with the red box."""
+    then takes the gray box from the buffer to the bin (with the other arm idle)."""
     world = physics_world(speed=0.03, max_boxes=0)
     red = world.conveyor.spawn_box(BoxColor.RED, x=-0.9, y=0.0)
     grays = [world.conveyor.spawn_box(BoxColor.GRAY, x=-0.839, y=0.0),
@@ -124,8 +124,8 @@ def test_clearing_through_the_buffer(physics_world):
 
 def test_robot_2_removes_a_colored_blocker_in_its_zone(physics_world):
     """#101, Robot 2 only zone: a gray box with a red box touching it behind and a gray one on the far side. Robot 2
-    cannot take the red blocker to region A: it puts it into the buffer, then bins the gray box; Robot 1 takes the
-    red box from the buffer to region A meanwhile (Robot 2 is out of the shared area then)."""
+    cannot take the red blocker to region A: it puts it into the buffer, then bins the gray box; Robot 1 then takes
+    the red box from the buffer to region A."""
     world = physics_world(speed=0.02, max_boxes=0)
     gray = world.conveyor.spawn_box(BoxColor.GRAY, x=0.25, y=0.0)   # upstream of PICK_X: the side box is not
     red = world.conveyor.spawn_box(BoxColor.RED, x=0.189, y=0.0)    # given to Robot 2 before the job is planned

@@ -26,8 +26,8 @@ def test_run_autonomous(mode, sorted_boxes):
 
 def test_run_autonomous_clear_and_sort_scene_and_video(tmp_path):
     out = run("run_autonomous.py", "--scene", "clear-and-sort")
-    # the demos run on physics (#96), where clear-and-sort is off: the blocked pair is left alone, no arm contact
-    assert "sorted correctly: 0, failed: 0, left the belt: 2" in out and "0 contacts" in out
+    # the demos run on physics (#96): the red box is grasped across the belt (the gray one is only in front), #101
+    assert "clear-and-sort: 1 of 1 succeeded" in out and "0 contacts" in out
     video = tmp_path / "demo.mp4"
     assert f"saved {video}" in run("run_autonomous.py", "--mode", "single", "--duration", "3", "--video", str(video))
     assert video.stat().st_size > 10_000
