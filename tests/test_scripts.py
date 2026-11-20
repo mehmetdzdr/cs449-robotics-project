@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import cv2
 import pytest
 
 pytestmark = pytest.mark.slow   # physics scenarios in real time: nightly / on demand in CI (#97)
@@ -28,8 +29,11 @@ def test_run_autonomous_clear_and_sort_scene_and_video(tmp_path):
     # the demos run on physics (#96), where clear-and-sort is off: the blocked pair is left alone, no arm contact
     assert "sorted correctly: 0, failed: 0, left the belt: 2" in out and "0 contacts" in out
     video = tmp_path / "demo.mp4"
-    assert f"saved {video}" in run("run_autonomous.py", "--mode", "single", "--duration", "1", "--video", str(video))
+    assert f"saved {video}" in run("run_autonomous.py", "--mode", "single", "--duration", "3", "--video", str(video))
     assert video.stat().st_size > 10_000
+    capture = cv2.VideoCapture(str(video))           # plays in real time: physics steps are longer than dt (the
+    length = capture.get(cv2.CAP_PROP_FRAME_COUNT) / capture.get(cv2.CAP_PROP_FPS)   # frame render alone takes
+    assert length == pytest.approx(3.0, abs=0.3)     # 0.13 s), one frame per step gave a 3x too fast video
 
 
 def test_run_command():
