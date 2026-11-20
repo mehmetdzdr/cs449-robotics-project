@@ -114,3 +114,11 @@ def test_stream_spawns_from_the_pool(physics_world):
         world.run(1.0)
     xs = sorted(position(world, b)[0] for b in world.conveyor.on_belt())
     assert np.diff(xs) == pytest.approx([0.3, 0.3], abs=0.02)
+
+
+def test_boxes_taken_out_are_reused_when_the_pool_is_used_up(physics_world):
+    """#109: long runs need more boxes than the pool holds; a box that left the belt end comes back as a new spawn."""
+    world = physics_world(0.3, spacing=0.9, max_boxes=None, pool=3)      # spawns at 0, 3, 6, 9 s
+    world.run(9.5)                                                          # box_0 has fallen off at about 7.3 s
+    assert world.conveyor.spawned == 4 and world.conveyor.missed == 1
+    assert "box_0" in world.conveyor.on_belt() and len(world.conveyor.on_belt()) == 3

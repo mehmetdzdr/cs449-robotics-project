@@ -77,7 +77,8 @@ def test_both_arms_at_once_with_different_durations(physics_world):
         world.step()
     print(f"both arms: gripper error {errors[1] * 1000:.1f} / {errors[2] * 1000:.1f} mm, robot 2 done at "
           f"{end2 - start:.2f} s")
-    assert end2 - start == pytest.approx(3.5, abs=2 * world.dt)
+    # a step is dt or longer (real-time simulation): CI took 3.65 s twice, locally 3.52 to 3.56 s
+    assert end2 - start == pytest.approx(3.5, abs=0.3)
     assert errors[1] < 0.01 and errors[2] < 0.01
 
 
