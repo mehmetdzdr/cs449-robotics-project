@@ -34,10 +34,9 @@ class Camera:
     BotOp's simulation renders a new camera image only every 0.35 to 0.5 s (software rendering under xvfb), and
     `getImageAndDepth` returns the latest one. `capture` notices a new image (call it every step) and stamps the
     observation with the capture time minus IMAGE_LATENCY; repeated images keep their time, the first one (there
-    before the first capture, of unknown age) is stamped -inf. The true image time
-    is not available: the stamp is off by about 0.03 to 0.07 s (standard deviation, measured), i.e. 3 to 14 mm
-    along a belt at 0.1 to 0.2 m/s. The segmentation is of the current state, so it matches the image only on a
-    stopped belt.
+    before the first capture, of unknown age) is stamped -inf. The true image time is not available; with a
+    capture every 0.05 s the stamp is off by about 0.013 s (sd), with slower captures by 0.03 to 0.07 s. The
+    segmentation is of the current state, so it matches the image only on a stopped belt.
     """
 
     def __init__(self, C: ry.Config, frame_name: str = TOP_CAMERA, bot: ry.BotOp | None = None,
