@@ -9,6 +9,8 @@ from conveyor_sort.sim.conveyor import ConveyorConfig
 from conveyor_sort.sim.ground_truth import GroundTruthDetector
 from conveyor_sort.sim.world import World
 
+pytestmark = pytest.mark.slow   # physics scenarios in real time: nightly / on demand in CI (#97)
+
 
 def run(world, duration, monkeypatch, **kwargs):
     """run_robots with SHARED_ROLES; also returns the time intervals of the tasks that used the shared area."""

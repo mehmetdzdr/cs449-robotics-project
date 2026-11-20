@@ -8,6 +8,8 @@ from conveyor_sort.sim.conveyor import ConveyorConfig
 from conveyor_sort.sim.regions import region_contains
 from conveyor_sort.sim.world import World
 
+pytestmark = pytest.mark.slow   # physics scenarios in real time: nightly / on demand in CI (#97)
+
 PICK_X = {1: -0.3, 2: 0.6}   # each robot picks a box resting here on the stopped belt [m]
 
 

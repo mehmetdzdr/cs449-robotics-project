@@ -18,7 +18,12 @@ learning = [
     "segment-anything", # SAM
 ]
 eval = ["matplotlib"]     # benchmark plots
-dev = ["pytest"]
+dev = ["pytest", "pytest-rerunfailures"]   # CI retries a failed test once (physics tests run in real time)
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: physics scenario tests (about 13 s or more each, real time); CI runs them nightly and on demand, not in every PR",
+]

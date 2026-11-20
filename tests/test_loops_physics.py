@@ -14,6 +14,8 @@ from conveyor_sort.sim.regions import region_contains
 from conveyor_sort.sim.world import World
 from conveyor_sort.sorting import run_robots, run_single_robot
 
+pytestmark = pytest.mark.slow   # physics scenarios in real time: nightly / on demand in CI (#97)
+
 COLORED = {BoxColor.RED: 1.0, BoxColor.GREEN: 1.0, BoxColor.BLUE: 1.0}
 
 

@@ -3,6 +3,8 @@ import pytest
 
 from conveyor_sort.physics.friction_grasp import HOLDING_MIN, run_lift_trial
 
+pytestmark = pytest.mark.slow   # physics scenarios in real time: nightly / on demand in CI (#97)
+
 
 @pytest.mark.parametrize("kwargs", [
     {"mass": 0.05}, {"mass": 0.2}, {"yaw_deg": 30}, {"robot_id": 2},
