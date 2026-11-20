@@ -82,11 +82,12 @@ class _KalmanState:
 
 
 class Tracker:
-    def __init__(self, max_distance: float = 0.05, max_age: float = 2.0, window: int = 20, predictor: str = "cv"):
+    def __init__(self, max_distance: float = 0.05, max_age: float = 3.0, window: int = 20, predictor: str = "cv"):
         assert predictor in ("cv", "kalman")
         self.predictor = predictor
         self.max_distance = max_distance   # gate: a detection further than this from a track's prediction starts a new track [m]
-        self.max_age = max_age             # a track not seen for this long is dropped (e.g. box hidden by an arm, or gone) [s]
+        self.max_age = max_age             # a track not seen for this long is dropped (box hidden by an arm, or gone) [s]:
+                                           # 3 s keeps a box hidden for 2 s with BotOp images 0.5 s apart (#103)
         self.window = window               # number of recent detections used for the velocity fit ("cv" only)
         self._states: list[_TrackState] = []
         self._next_id = 0
