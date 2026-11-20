@@ -76,12 +76,32 @@ def test_lifted_box_is_not_driven(physics_world):
     assert position(world, box)[0] == pytest.approx(p[0])                # no pose write along the belt
 
 
+def test_box_behind_a_held_box_jams(physics_world):
+    world = physics_world(0.2)
+    held = world.conveyor.spawn_box(BoxColor.RED, x=-0.3, y=0.0)
+    behind = world.conveyor.spawn_box(BoxColor.GREEN, x=-0.4, y=0.0)
+    other_lane = world.conveyor.spawn_box(BoxColor.BLUE, x=-0.4, y=0.1)
+    world.run(0.3)
+    world.conveyor.hold(held)                        # a gripper closes on it: the belt no longer drives it
+    x_other, t0 = position(world, other_lane)[0], world.time
+    world.run(2.0)
+    gap = position(world, held)[0] - position(world, behind)[0]
+    print(f"jammed box: centre distance {gap * 1000:.1f} mm")
+    assert gap == pytest.approx(BOX_SIZE, abs=0.005)                        # stopped behind it, not pushed into it
+    other_speed = (position(world, other_lane)[0] - x_other) / (world.time - t0)
+    assert other_speed == pytest.approx(0.2, rel=0.05)                       # other lane: not stopped
+    world.conveyor.unhold(held)
+    x_behind, t0 = position(world, behind)[0], world.time
+    world.run(1.0)
+    assert (position(world, behind)[0] - x_behind) / (world.time - t0) == pytest.approx(0.2, rel=0.05)   # moves on
+
+
 def test_box_at_the_belt_end_falls_off_and_is_missed(physics_world):
     world = physics_world(0.3)
     box = world.conveyor.spawn_box(BoxColor.GREEN, x=0.8, y=0.0)
     world.run(0.3)
     assert world.conveyor.missed == 0 and box in world.conveyor.on_belt()
-    world.run(3.0)                                                       # driven until its centre passes the end, tips over
+    world.run(3.0)                                                       # driven until its centre passes the end
     assert world.conveyor.missed == 1 and box not in world.conveyor.colors
     assert position(world, box)[1] < -2.0                                  # back in storage
 
