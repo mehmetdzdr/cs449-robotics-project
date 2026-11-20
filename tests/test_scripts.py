@@ -1,4 +1,5 @@
 """The demo entry points run from the command line."""
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -17,10 +18,12 @@ def run(script: str, *args: str) -> str:
     return result.stdout
 
 
-@pytest.mark.parametrize("mode, sorted_boxes", [("single", 1), ("fixed", 1), ("coordinated", 1)])
-def test_run_autonomous(mode, sorted_boxes):
+@pytest.mark.parametrize("mode", ["single", "fixed", "coordinated"])
+def test_run_autonomous(mode):
     out = run("run_autonomous.py", "--mode", mode, "--duration", "14", "--speed", "0.1", "--seed", "0", "--detector", "gt")
-    assert f"sorted correctly: {sorted_boxes}, failed: 0" in out
+    # 1 box sorted within the 14 s, and the one in the arm when the run ends is finished too (#105): 1 or 2 (#146)
+    sorted_boxes = int(re.search(r"sorted correctly: (\d+), failed: 0,", out).group(1))
+    assert sorted_boxes in (1, 2)
     assert ("shared area" in out) == (mode != "single")
 
 
