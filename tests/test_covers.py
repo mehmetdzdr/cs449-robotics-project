@@ -145,7 +145,7 @@ def test_spot_is_cleared_and_covers_are_reused():
 
 # --- plans: Robot 2 lifts the cover and puts it aside, Robot 1 picks and places the box -------------------------
 
-@pytest.mark.parametrize("pick_x, lateral", [(-0.55, 0.0), (-0.45, 0.05), (-0.35, -0.05), (-0.25, 0.0)])
+@pytest.mark.parametrize("pick_x, lateral", [(-0.45, 0.0), (-0.35, 0.05), (-0.25, -0.05), (-0.15, 0.0)])
 def test_cover_then_box_plans_for_both_robots(pick_x, lateral):
     """Robot 2: moving pick of the knob (3 s, cover 15 cm upstream now), lift with the cover attached (the walls
     clear the box), put aside on the spot. Then Robot 1: moving pick of the uncovered box where it is HANDOVER_TIME
@@ -238,19 +238,21 @@ def test_a_young_cover_track_is_not_used():
 
 def test_the_uncovered_box_goes_to_robot_1():
     u = uncovering([])
-    lifted_at = u.world.time - 2.0
-    u._handover = (np.array([-0.4, 0.2, 0.74]), lifted_at)
-    box = Track(7, BoxColor.BLUE, np.array([-0.4 + SPEED * 2.0, 0.2, 0.65]), np.array([SPEED, 0, 0]), u.world.time)
+    lift_started = u.world.time - 2.0
+    u._handover = (np.array([-0.4, 0.2, 0.74]), lift_started, lift_started - 1.0)
+    box = Track(7, BoxColor.BLUE, np.array([-0.4 + SPEED * 2.0 + 0.04, 0.2, 0.65]), np.array([SPEED, 0, 0]), u.world.time)
+    old = Track(6, BoxColor.RED, np.array([-0.4 + SPEED * 2.0 - 0.02, 0.2, 0.65]), np.array([SPEED, 0, 0]), u.world.time)
     gray = Track(8, BoxColor.GRAY, np.array([0.5, 0.2, 0.65]), np.array([SPEED, 0, 0]), u.world.time)
-    free, assignments = u.start([1, 2], {}, False, [box, gray], {7: lifted_at + 0.5, 8: 0.0})
+    first_seen = {7: lift_started + 0.5, 6: 0.0, 8: 0.0}       # track 6 was seen before the cover was grasped
+    free, assignments = u.start([1, 2], {}, False, [old, box, gray], first_seen)
     assert [(a.robot_id, a.track_id, a.target_region) for a in assignments] == [(1, 7, "region_C")]
     assert free == [2] and u.stats.handed_over == 1 and u._handover is None
 
 
 def test_robot_1_waits_for_the_uncovered_box_then_is_released():
     u = uncovering([])
-    lifted_at = u.world.time - 0.5
-    u._handover = (np.array([-0.4, 0.2, 0.74]), lifted_at)
+    lift_started = u.world.time - 0.5
+    u._handover = (np.array([-0.4, 0.2, 0.74]), lift_started, lift_started - 1.0)
     assert u.start([1, 2], {}, False, [], {}) == ([2], [])           # not seen yet: Robot 1 is kept for it
     u.world.time += 10.0                                              # never seen: Robot 1 is free again
     assert u.start([1, 2], {}, False, [], {}) == ([1, 2], []) and u.stats.lost == 1

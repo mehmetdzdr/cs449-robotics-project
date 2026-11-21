@@ -33,9 +33,13 @@ class CoverResult:
     failed_stage: str | None = None   # "pick", "grasp", "lift", "slip", "place", "drop", "release", "retreat", "home"
     planning_time: float = 0.0      # summed KOMO solve time [s]
     cover: str | None = None        # frame name of the grasped cover
-    lifted_at: float | None = None  # time the cover was lifted off its box [s]
+    grasped_at: float | None = None   # time the fingers closed on the knob [s]
+    lift_started: float | None = None   # time the lift began: the box under the cover is free from about then [s]
+    lifted_at: float | None = None  # time the cover was checked lifted off its box (after the lift) [s]
     lifted_from: np.ndarray | None = None   # knob position at the grasp (the box is below it) [m]
+    carry_tilt: float = 0.0         # largest tilt of the cover in the gripper (lift and place) [deg]
     place_error: float | None = None  # cover to spot centre, xy [m]
+    tilt: float | None = None       # cover tilt on the spot [deg]
 
 
 @contextmanager
@@ -102,10 +106,11 @@ class CoverTask:
                 result.failed_stage = result.failed_stage or stage
                 return False
             for _ in follow_path(world, plan.path, duration, robot):
-                if carrying is not None and np.linalg.norm(C.getFrame(carrying).getPosition()
-                                                           - gripper.getPosition()) > DROP_DISTANCE:
-                    result.failed_stage = result.failed_stage or "drop"
-                    return False
+                if carrying is not None:
+                    result.carry_tilt = max(result.carry_tilt, tilt(C, carrying))
+                    if np.linalg.norm(C.getFrame(carrying).getPosition() - gripper.getPosition()) > DROP_DISTANCE:
+                        result.failed_stage = result.failed_stage or "drop"
+                        return False
                 yield True
             return True
 
@@ -154,6 +159,7 @@ class CoverTask:
         if cover is not None:
             conveyor.hold(cover)
             result.lifted_from = C.getFrame(cover).getPosition().copy()
+        result.grasped_at = world.time
         world.arms.set_fingers(robot, FINGER_SQUEEZE, SQUEEZE_TIME)
         yield from wait(SQUEEZE_TIME + SQUEEZE_SETTLE)
         if cover is None or not holding(world, robot):
@@ -168,7 +174,8 @@ class CoverTask:
                 return plan_lift(C, robot)
 
         gripper_z, cover_z = gripper.getPosition()[2], C.getFrame(cover).getPosition()[2]
-        lifted = yield from run("lift", lift, LIFT_TIME)
+        result.lift_started = world.time
+        lifted = yield from run("lift", lift, LIFT_TIME, carrying=cover)
         self.at_belt = self.at_belt and not lifted
         if lifted:
             yield from wait(SQUEEZE_SETTLE)
@@ -190,6 +197,7 @@ class CoverTask:
             return
         position = C.getFrame(cover).getPosition()
         result.place_error = float(np.linalg.norm(position[:2] - C.getFrame(COVER_SPOT).getPosition()[:2]))
-        result.success = result.place_error < SPOT_TOLERANCE and tilt(C, cover) < MAX_TILT
+        result.tilt = tilt(C, cover)
+        result.success = result.place_error < SPOT_TOLERANCE and result.tilt < MAX_TILT
         if not result.success:
             result.failed_stage = "release"

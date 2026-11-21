@@ -43,7 +43,9 @@ RESERVE_TIME = 5.0      # a cover Robot 2 can pick within this is due: no other 
 CHECK_EVERY = 0.5       # cover decisions (KOMO reachability checks) at most this often [s]
 RETRY_DELAY = 0.5       # a cover task that could not be planned is tried again after this [s]
 MAX_ATTEMPTS = 3        # cover tasks per cover track
-UNCOVERED_MATCH = 0.05  # the uncovered box's track is the one this close (xy) to where the box is expected [m]
+UNCOVERED_MATCH = 0.1   # the uncovered box's track: first seen after the grasp of the cover, the nearest one within
+#                         this (xy) of where the box is expected (it has 1.5 cm play in the cover, and it is free to
+#                         move on from some time during the lift) [m]
 UNCOVERED_TIMEOUT = 8.0   # ... found within this after the lift, or Robot 1 is released [s]
 
 
@@ -70,7 +72,9 @@ class Uncovering:
         self.stats = CoverStats()
         self._task = None                           # the running CoverTask
         self._lift_noted = False                    # its lift has started the handover
-        self._handover: tuple[np.ndarray, float] | None = None   # (expected box position, at time) after a lift
+        self._handover: tuple[np.ndarray, float, float] | None = None   # after a lift: (box position, moving from
+        #                                                                   this time, its track seen after this)
+        self.results = []                           # CoverResult of every cover task, in order
         self._due: tuple[str, int | None] = ("none", None)       # latest decision: ("start" | "wait" | "none", track)
         self._next_check = 0.0
 
@@ -120,9 +124,12 @@ class Uncovering:
         """Robot 1's assignment for the uncovered box once its track is usable, else None. Ends the handover (and
         Robot 1's reservation) when it is given out, when the box cannot be picked, or after UNCOVERED_TIMEOUT."""
         world, now = self.world, self.world.time
-        position, since = self._handover
+        position, since, seen_after = self._handover
         expected = position + self._belt_velocity() * (now - since)
-        near = [t for t in tracks if np.linalg.norm(t.predict(now)[:2] - expected[:2]) < UNCOVERED_MATCH]
+        distance = {t.track_id: np.linalg.norm(t.predict(now)[:2] - expected[:2]) for t in tracks
+                    if first_seen.get(t.track_id, -np.inf) >= seen_after}
+        near = sorted([t for t in tracks if distance.get(t.track_id, np.inf) < UNCOVERED_MATCH],
+                      key=lambda t: distance[t.track_id])
         track = near[0] if near else None
         if track is None or now - first_seen[track.track_id] < MIN_TRACK_AGE or now - track.timestamp > max_track_gap(world):
             if now - since > UNCOVERED_TIMEOUT:
@@ -148,7 +155,8 @@ class Uncovering:
         if self._task is not None and self._task.result.lifted_at is not None and not self._lift_noted:
             self._lift_noted = True
             self.stats.lifted += 1
-            self._handover = (self._task.result.lifted_from, self._task.result.lifted_at)
+            result = self._task.result
+            self._handover = (result.lifted_from, result.lift_started, result.grasped_at)
 
     def start(self, free: list[int], tasks: dict, shared_area_busy: bool, tracks: list[Track],
               first_seen: dict[int, float]) -> tuple[list[int], list[Assignment]]:
@@ -194,6 +202,7 @@ class Uncovering:
         result, track_id = task.result, task.assignment.track_id
         self._note_lift()                           # lifted, and ended before the next start()
         self._task = None
+        self.results.append(result)
         if result.success:
             self.stats.put_aside += 1
             return True

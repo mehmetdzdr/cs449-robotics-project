@@ -88,7 +88,7 @@ def test_covered_box_is_uncovered_and_sorted(physics_world, detector):
     uncovering = Uncovering(world, get_cover_detector(detector, world))
     stats = run_robots(world, get_detector(detector, world), 45.0, FIXED_ROLES, covers=uncovering)
     print([(round(e.time, 1), e.robot_id, e.color.name, e.region, e.failed_stage) for e in stats.events],
-          uncovering.stats, f"min arm distance {stats.min_arm_distance:.3f} m")
+          uncovering.stats, uncovering.results, f"min arm distance {stats.min_arm_distance:.3f} m")
     assert uncovering.stats.lifted == uncovering.stats.put_aside == uncovering.stats.handed_over == 1
     assert [(e.robot_id, e.color, e.region, e.success) for e in stats.events] == [(1, BoxColor.RED, "region_A", True)]
     assert placed_freely(world, red, "region_A") and on_spot(world, cover)
@@ -97,13 +97,13 @@ def test_covered_box_is_uncovered_and_sorted(physics_world, detector):
 
 
 def test_stream_with_covered_boxes(physics_world):
-    """Fixed roles, half the colored boxes under a cover: every lifted cover is put aside, its box handed over to
-    Robot 1; no arm contact, no contact of Robot 1 with a cover."""
-    world = physics_world(CoverConfig(share=0.5), speed=0.05, spacing=0.6, seed=0)
+    """Fixed roles, every colored box that fits under a cover: every lifted cover is put aside, its box handed over
+    to Robot 1; no arm contact, no contact of Robot 1 with a cover."""
+    world = physics_world(CoverConfig(share=1.0), speed=0.05, spacing=0.6, seed=0)
     uncovering = Uncovering(world, get_cover_detector("gt", world))
     stats = run_robots(world, get_detector("gt", world), 90.0, FIXED_ROLES, covers=uncovering)
     print([(round(e.time, 1), e.robot_id, e.color.name, e.region, e.failed_stage) for e in stats.events],
-          uncovering.stats, f"missed {stats.missed}, min arm distance {stats.min_arm_distance:.3f} m")
+          uncovering.stats, uncovering.results, f"missed {stats.missed}, min arm distance {stats.min_arm_distance:.3f} m")
     s = uncovering.stats
     assert s.lifted >= 2 and s.put_aside == s.lifted and s.handed_over == s.lifted
     assert stats.sorted_correctly >= s.handed_over
