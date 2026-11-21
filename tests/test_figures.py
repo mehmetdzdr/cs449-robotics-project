@@ -50,3 +50,19 @@ def test_physical_prediction_table(tmp_path):
 def test_committed_figures_exist():
     for name in ("manipulation_sorted.png", "perception.png", "prediction_error.png", "tables.md"):
         assert (EVALUATION / "figures" / name).exists(), name
+
+
+def test_scenario_matrix_table(tmp_path):
+    pytest.importorskip("matplotlib")
+    results, out = tmp_path / "results", tmp_path / "figures"
+    results.mkdir()
+    (results / "scenario_matrix.csv").write_text(
+        "layout,lateral,speed,expected,observed,ok,failed_stages,arm_contacts,min_arm_distance,box_held\n"
+        "free,centre,0.05,sorted,sorted,True,,0,inf,False\n"
+        "free,centre,0.3,sorted or missed,missed,True,,0,inf,False\n"
+        "front_side,near_edge,0.05,cleared,failed,False,grasp,0,0.2,False\n")
+    run("make_figures.py", "--results", results, "--out", out)
+    tables = (out / "tables.md").read_text()
+    assert "Scenario matrix on physics: observed outcome per cell (2 of 3 as expected, 0 arm contacts)" in tables
+    assert "| free | centre | sorted | missed | sorted / sorted or missed |" in tables
+    assert "| front_side | near edge | failed **(unexpected)** | - | cleared |" in tables

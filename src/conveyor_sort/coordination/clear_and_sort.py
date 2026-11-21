@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from conveyor_sort.coordination.allocation import BLOCK_X, BLOCK_Y, LEAD_TIME, MIN_TRACK_AGE, max_track_gap
+from conveyor_sort.coordination.allocation import (BLOCK_X, BLOCK_Y, LEAD_TIME, MAX_PICK_SPEED, MIN_TRACK_AGE,
+                                                   max_track_gap)
 from conveyor_sort.interfaces import Assignment, BoxColor, Track
 from conveyor_sort.planning.access import grasp_access
 from conveyor_sort.planning.clearing import plan_clearing
@@ -86,7 +87,7 @@ def _usable(world: World, first_seen: dict[int, float], blocked: dict[int, float
     """A track that may be planned for now: not blocked, followed long enough, seen recently, moving with the belt."""
     def usable(track: Track) -> bool:
         return (world.time >= blocked.get(track.track_id, 0.0) and world.time - first_seen[track.track_id] >= MIN_TRACK_AGE
-                and world.time - track.timestamp <= max_track_gap(world) and track.velocity[0] > 0)
+                and world.time - track.timestamp <= max_track_gap(world) and 0 < track.velocity[0] <= MAX_PICK_SPEED)
     return usable
 
 

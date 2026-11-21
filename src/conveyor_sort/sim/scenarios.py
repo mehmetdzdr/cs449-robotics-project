@@ -43,25 +43,43 @@ class Scenario:
     neighbours: list[tuple[BoxColor, np.ndarray]] = field(default_factory=list)   # (color, (x, y))
 
 
-def make_scenario(name: str, seed: int = 0, lateral: str = "centre", spacing: str = "touching",
-                  x: float = TARGET_X, neighbour_color: BoxColor = BoxColor.GRAY) -> Scenario:
-    """The layout `name` (a key of NEIGHBOURHOODS) with the target `lateral` (LATERAL) and the neighbours `spacing`
-    (SPACING) away from it. The seed only picks the target's color: the same arguments give the same layout.
-    ValueError if a box would not fit on the belt (e.g. side neighbours of a target at the edge)."""
-    if name not in NEIGHBOURHOODS or lateral not in LATERAL or spacing not in SPACING:
-        raise ValueError(f"unknown layout {name!r} / {lateral!r} / {spacing!r}")
+def _build_scenario(name: str, offsets: list[tuple[int, int]], seed: int = 0, lateral: str = "centre",
+                    spacing: str = "touching", x: float = TARGET_X,
+                    neighbour_color: BoxColor = BoxColor.GRAY) -> Scenario:
+    """Construct a Scenario from relative grid offsets `(dx, dy)` in units of `SPACING[spacing]`."""
+    if lateral not in LATERAL or spacing not in SPACING:
+        raise ValueError(f"unknown lateral/spacing {lateral!r} / {spacing!r}")
     rng = np.random.default_rng(seed)
     target_color = COLORED[rng.integers(len(COLORED))]
     centre_y = 0.2                               # belt centre line (assets/scene.g)
     target = np.array([x, centre_y + LATERAL[lateral]])
     d = SPACING[spacing]
-    neighbours = [(neighbour_color, target + [i * d, j * d]) for i, j in NEIGHBOURHOODS[name]]
+    neighbours = [(neighbour_color, target + [i * d, j * d]) for i, j in offsets]
     max_offset = 0.15 - BOX_SIZE / 2 + 1e-9      # belt half width minus half a box
     for _, position in [(target_color, target)] + neighbours:
         if abs(position[1] - centre_y) > max_offset:
             raise ValueError(f"layout {name!r} with the target at the {lateral} and {spacing} spacing does not fit "
                              f"on the belt")
     return Scenario(name, lateral, spacing, target_color, target, neighbours)
+
+
+def make_scenario(name: str, seed: int = 0, lateral: str = "centre", spacing: str = "touching",
+                  x: float = TARGET_X, neighbour_color: BoxColor = BoxColor.GRAY) -> Scenario:
+    """The layout `name` (a key of NEIGHBOURHOODS) with the target `lateral` (LATERAL) and the neighbours `spacing`
+    (SPACING) away from it. The seed only picks the target's color: the same arguments give the same layout.
+    ValueError if a box would not fit on the belt (e.g. side neighbours of a target at the edge)."""
+    if name not in NEIGHBOURHOODS:
+        raise ValueError(f"unknown layout {name!r}")
+    return _build_scenario(name, NEIGHBOURHOODS[name], seed, lateral, spacing, x, neighbour_color)
+
+
+def make_matrix_scenario(name: str, seed: int = 0, lateral: str = "centre", spacing: str = "touching",
+                         x: float = TARGET_X, neighbour_color: BoxColor = BoxColor.GRAY) -> Scenario:
+    """Like `make_scenario`, plus `"front_side"` (an L-shaped 2-blocker layout: front + inward side neighbour)."""
+    if name == "front_side":
+        side = -1 if lateral == "far_edge" else 1
+        return _build_scenario(name, [(1, 0), (0, side)], seed, lateral, spacing, x, neighbour_color)
+    return make_scenario(name, seed, lateral, spacing, x, neighbour_color)
 
 
 def spawn_scenario(world: World, scenario: Scenario) -> tuple[str, list[str]]:

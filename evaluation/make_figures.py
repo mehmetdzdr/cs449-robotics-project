@@ -3,7 +3,7 @@
     python evaluation/make_figures.py            (needs matplotlib: pip install -e ".[eval]")
 
 Reads results/{manipulation,manipulation_physics,perception,prediction,prediction_physics,command,command_fast,
-command_physics}.csv, written by the benchmark scripts
+command_physics,scenario_matrix}.csv, written by the benchmark scripts
 in this directory, and writes evaluation/figures/*.png and evaluation/figures/tables.md. A missing CSV is skipped.
 """
 import argparse
@@ -257,6 +257,24 @@ if records:
                      f"{sum(r['robot'] == '1' for r in rs)} / {sum(r['robot'] == '2' for r in rs)}"])
     table("Command mode on physics: random commands (a box every 0.4 m; blocked: a gray box 8 cm in front of each colored one)",
           ["belt", "stream", "commands", "success rate", "time mean / max [s]", "failures", "Robot 1 / Robot 2"], rows)
+
+# ---------------------------------------------------------------- scenario matrix (#106)
+records = read("scenario_matrix.csv")
+if records:
+    speeds = sorted({float(r["speed"]) for r in records})
+    cell = {(r["layout"], r["lateral"], float(r["speed"])): r for r in records}
+    rows = []
+    for layout, lateral in dict.fromkeys((r["layout"], r["lateral"]) for r in records):
+        expectations = list(dict.fromkeys(cell[layout, lateral, v]["expected"] for v in speeds if (layout, lateral, v) in cell))
+        row = [layout, lateral.replace("_", " ")]
+        for v in speeds:
+            r = cell.get((layout, lateral, v))
+            row.append("-" if r is None else r["observed"] + ("" if r["ok"] == "True" else " **(unexpected)**"))
+        rows.append(row + [" / ".join(expectations)])
+    ok = sum(r["ok"] == "True" for r in records)
+    table(f"Scenario matrix on physics: observed outcome per cell ({ok} of {len(records)} as expected, "
+          f"{sum(int(r['arm_contacts']) for r in records)} arm contacts)",
+          ["neighbourhood", "lateral"] + [f"{v:g} m/s" for v in speeds] + ["expected"], rows)
 
 (args.out / "tables.md").write_text("\n".join(tables), encoding="utf-8")
 print(f"wrote {args.out / 'tables.md'}")
