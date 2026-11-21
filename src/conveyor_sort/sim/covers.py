@@ -16,7 +16,9 @@ The mode is switched on with `World(..., covers=CoverConfig(...))`, which builds
 - a held cover (`hold`, by a gripper) is not driven, nor is the box under it; once the cover is lifted the box is on
   the belt again and driven as before;
 - `cover_spot` on Robot 2's side of the belt is where covers are put aside; `clear_spot` takes them away (as an
-  operator would) before the next one is put there.
+  operator would) before the next one is put there;
+- unused and removed boxes and covers are parked on the floor under the table, out of sight (`Conveyor` parks them
+  in rows behind Robot 1, where they showed in the viewer; the default mode keeps that).
 """
 from dataclasses import dataclass
 
@@ -47,14 +49,25 @@ SPOT_SIZE = [0.2, 0.2, 0.002]
 @dataclass
 class CoverConfig:
     pool: int = 4         # covers created before the simulation starts (put-aside ones are reused)
-    share: float = 0.0    # streams: share of colored boxes that enter under a cover (if one fits and is free)
-    seed: int = 0         # for the cover draws, independent of the box stream (same boxes as without covers)
+    share: float = 0.0    # streams: share of colored boxes that enter under a cover, spread evenly (the first colored
+    #                       box that fits gets one, then as soon as the covered share falls behind); no random draw, so
+    #                       the boxes are the same as without covers
+
+
+# Parking under the table (top at z = 0.6, the main part x in [-1.15, 1.15], y in [-0.62, 0.62], the extension up to
+# y = 1.1), on PhysX's ground plane at z = 0, in the middle, at least 0.6 m from every edge: hidden from the top camera
+# and from above by the table, out of reach of the arms.
+PARK_SPACING = 0.07   # [m]
+PARK_Y = 0.03         # first row [m]
+
+
+def _box_park_position(index: int) -> list[float]:
+    return [-0.315 + PARK_SPACING * (index % 10), PARK_Y + PARK_SPACING * (index // 10), BOX_SIZE / 2]
 
 
 def _storage_position(index: int) -> list[float]:
-    """Unused and put-aside covers stand on the ground (PhysX's ground plane at z = 0) behind Robot 1, out of view,
-    beyond the parked boxes (y = -2.5 and further, see conveyor._storage_position)."""
-    return [-1.0 + 0.2 * index, -3.5, COVER_REST]
+    """Unused and put-aside covers, under the table on both sides of the parked boxes."""
+    return [(-0.55, -0.42, 0.42, 0.55)[index % 4], 0.24 - 0.13 * (index // 4), COVER_REST]
 
 
 def add_cover(C: ry.Config, name: str, position, physics: bool) -> None:
@@ -97,8 +110,11 @@ class CoveredConveyor(Conveyor):
         for i, name in enumerate(self.covers):
             add_cover(C, name, _storage_position(i), physics)
         C.addFrame(COVER_SPOT).setShape(ry.ST.box, SPOT_SIZE).setPosition(SPOT_POSITION).setColor([0.9, 0.9, 0.75])
+        if physics:                         # the box pool, under the table instead of behind Robot 1 (before the start)
+            for i in range(self.config.pool):
+                C.getFrame(f"box_{i}").setPosition(_box_park_position(i))
         self._parked = list(self.covers)
-        self._cover_rng = np.random.default_rng([covers.seed, 177])
+        self._cover_debt = 1.0 - covers.share   # see CoverConfig.share: the first colored box that fits is covered
         self.covers_missed = 0      # covers that reached the belt end (with their box)
         self.covers_cleared = 0     # covers taken away from the spot
 
@@ -160,9 +176,21 @@ class CoveredConveyor(Conveyor):
     def spawn_box(self, color: BoxColor | None = None, x: float | None = None, y: float | None = None) -> str:
         box = super().spawn_box(color, x, y)
         share = self.cover_config.share
-        if share and self.colors[box] != BoxColor.GRAY and self._cover_rng.random() < share and self.coverable(box):
-            self.cover(box)
+        if share and self.colors[box] != BoxColor.GRAY:
+            self._cover_debt = min(self._cover_debt + share, 1.0)
+            if self._cover_debt >= 1.0 - 1e-9 and self.coverable(box):   # else the next colored box that fits
+                self._cover_debt -= 1.0
+                self.cover(box)
         return box
+
+    def remove(self, box: str) -> None:
+        """As `Conveyor.remove`, parked under the table (physics backend)."""
+        if not self.physics:
+            super().remove(box)
+            return
+        self._set_pose(box, _box_park_position(int(box.split("_")[1])), [1.0, 0, 0, 0])
+        del self.colors[box]
+        self._removed.append(box)
 
     def clear_spot(self) -> int:
         """Take the covers standing on the spot away; returns how many."""

@@ -5,9 +5,9 @@ import inspect
 import numpy as np
 import pytest
 
-from conveyor_sort.coordination.allocation import FIXED_ROLES, LEAD_TIME, allocate
+from conveyor_sort.coordination.allocation import FIXED_ROLES, LEAD_TIME, PICK_X, allocate
 from conveyor_sort.coordination.clear_and_sort import plan_clearing_job
-from conveyor_sort.coordination.covers import HANDOVER_TIME, LIFTER, SORTER, Uncovering
+from conveyor_sort.coordination.covers import BELT_TIME, HANDOVER_TIME, LIFTER, LIFTER_TASK_TIME, SORTER, Uncovering
 from conveyor_sort.interfaces import BoxColor, Track
 from conveyor_sort.perception.camera import Camera
 from conveyor_sort.perception.covers import HsvCoverDetector, get_cover_detector
@@ -15,6 +15,8 @@ from conveyor_sort.perception.detectors import get_detector
 from conveyor_sort.perception.hsv import HsvDetector
 from conveyor_sort.planning.pick import own_arm_only, plan_lift, plan_moving_pick, plan_place
 from conveyor_sort.planning.reach import LIFT_HEIGHT, can_pick
+from conveyor_sort.sim import conveyor as conveyor_module
+from conveyor_sort.sim import covers as covers_module
 from conveyor_sort.sim.conveyor import BOX_SIZE, Conveyor, ConveyorConfig
 from conveyor_sort.sim.covers import (COVER_INSIDE, COVER_REST, COVER_SPOT, CoverConfig, CoveredConveyor,
                                       cover_frames)
@@ -130,13 +132,34 @@ def test_only_a_box_with_room_around_it_is_covered():
     assert edge not in conveyor.covered() and pair[1] not in conveyor.covered() and gray not in conveyor.covered()
 
 
+def test_covers_are_spread_evenly_over_the_colored_boxes():
+    """share 0.3: the first colored box that fits gets a cover, then every box after which the covered share would
+    fall behind; gray boxes are skipped."""
+    world = World(ConveyorConfig(max_boxes=0), covers=CoverConfig(share=0.3))
+    boxes = [world.conveyor.spawn_box(BoxColor.GRAY if i == 2 else BoxColor.RED, x=-1.0 + 0.2 * i, y=0.0)
+             for i in range(11)]
+    colored = [b for b in boxes if world.conveyor.colors[b] != BoxColor.GRAY]
+    assert [colored.index(b) for b in world.conveyor.covered()] == [0, 4, 8]
+
+
+def test_parked_boxes_and_covers_are_under_the_table_in_the_covered_mode_only():
+    """Covered mode: the box pool and unused covers on the floor under the middle of the table (at least 0.5 m from
+    its edges: x in [-1.15, 1.15], y in [-0.62, 1.1] with the extension). The default keeps its rows behind Robot 1."""
+    parked = [covers_module._box_park_position(i) for i in range(ConveyorConfig().pool)]
+    parked += [covers_module._storage_position(i) for i in range(CoverConfig().pool)]
+    for x, y, z in parked:
+        assert abs(x) < 1.15 - 0.5 and -0.62 + 0.5 < y < 1.1 - 0.5 and z <= COVER_REST
+    assert conveyor_module._storage_position(0) == [-1.0, -2.5, BOX_SIZE / 2]      # unchanged default
+    assert conveyor_module._storage_position(59) == pytest.approx([0.9, -2.7, BOX_SIZE / 2])
+
+
 def test_spot_is_cleared_and_covers_are_reused():
     world, box, cover = covered_world(-0.5)
     conveyor = world.conveyor
     spot = world.C.getFrame(COVER_SPOT).getPosition()
     world.C.getFrame(cover).setPosition([spot[0], spot[1], spot[2] + COVER_REST])     # put aside
     assert conveyor.clear_spot() == 1 and conveyor.covers_cleared == 1
-    assert world.C.getFrame(cover).getPosition()[1] < -3                               # parked out of view
+    assert world.C.getFrame(cover).getPosition()[2] < 0.3                              # parked under the table
     for i in range(4):                                                                 # the pool: 4 covers
         conveyor.cover(conveyor.spawn_box(BoxColor.RED, x=-0.9 + 0.3 * i, y=0.0))
     with pytest.raises(RuntimeError, match="raise CoverConfig.pool"):
@@ -211,29 +234,49 @@ def cover_track(track_id: int, x: float, speed: float = SPEED, time: float = 5.0
     return Track(track_id, BoxColor.GRAY, np.array([x, 0.2, 0.62 + COVER_REST]), np.array([speed, 0, 0]), time)
 
 
-def test_a_reachable_cover_is_lifted_now():
+def test_a_cover_in_its_window_is_lifted_now():
     u = uncovering([cover_track(0, -0.55)])                 # knob picked at -0.4, the box picked at about -0.07
-    kind, track = u.decide()
+    kind, track, latest = u.decide()
     assert kind == "start" and track.track_id == 0
+    assert latest - u.world.time == pytest.approx((PICK_X[SORTER][1] - SPEED * HANDOVER_TIME + 0.55) / SPEED - LEAD_TIME)
 
 
-def test_a_cover_coming_within_reach_is_waited_for():
-    u = uncovering([cover_track(0, -1.05, speed=0.1)])      # knob at -0.75 at pick time, at -0.25 within 5 s
+def test_robots_keep_working_until_a_cover_needs_them():
+    """A cover whose window opens in 2 s and closes in 8.3 s: Robot 2 takes no other task (it would be busy past
+    the window), Robot 1 may still go to the belt (a pick keeps the belt BELT_TIME, less than what is left)."""
+    u = uncovering([cover_track(0, -0.75)])
+    earliest, latest = u.window(u.tracks[0])
+    assert earliest - u.world.time == pytest.approx(2.0) and latest - u.world.time == pytest.approx(8.3)
     assert u.decide()[0] == "wait"
-    free, assignments = u.start([1, 2], {}, False, [], {})
-    assert free == [] and assignments == []                 # nothing else starts: the belt is kept for the cover
+    assert u.start([1, 2], {}, False, [], {}) == ([1], [])
+    assert latest - u.world.time > BELT_TIME and latest - u.world.time < LIFTER_TASK_TIME
 
 
-def test_a_cover_too_far_downstream_is_reported_and_left_alone():
+def test_robot_1_is_held_off_the_belt_only_when_the_window_closes_soon():
+    u = uncovering([cover_track(0, -0.45)])                 # window open, closes in 2.3 s; Robot 2 still busy
+    kind, _, latest = u.decide()
+    assert kind == "start" and latest - u.world.time < BELT_TIME
+    assert u.start([1], {}, False, [], {}) == ([], [])
+
+
+def test_a_cover_whose_window_has_closed_is_reported_and_left_alone():
     u = uncovering([cover_track(0, 0.1)])                   # the box would be past Robot 1's part of the belt
-    assert u.decide() == ("none", None)
+    assert u.decide() == ("none", None, np.inf)
     assert u.stats.infeasible == 1 and u.blocked[0] == float("inf")
     assert u.start([1, 2], {}, False, [], {}) == ([1, 2], [])
 
 
+def test_at_0_1_m_s_the_window_never_opens():
+    """Known limit: at 0.1 m/s the box would be past Robot 1 before Robot 2 can reach the knob (LIFT_X)."""
+    u = uncovering([cover_track(0, -0.9, speed=0.1)])
+    earliest, latest = u.window(u.tracks[0])
+    assert earliest > latest
+    assert u.decide()[0] == "none" and u.stats.infeasible == 1
+
+
 def test_a_young_cover_track_is_not_used():
     u = uncovering([cover_track(0, -0.55)], time=0.5)       # tracked for 0.5 s (MIN_TRACK_AGE 1 s)
-    assert u.decide() == ("none", None)
+    assert u.decide() == ("none", None, np.inf)
 
 
 def test_the_uncovered_box_goes_to_robot_1():

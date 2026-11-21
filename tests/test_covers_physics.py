@@ -3,6 +3,7 @@ sorted by Robot 1, with no arm contact. Planning-only counterparts in test_cover
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -101,9 +102,12 @@ def test_stream_with_covered_boxes(physics_world):
     to Robot 1; no arm contact, no contact of Robot 1 with a cover."""
     world = physics_world(CoverConfig(share=1.0), speed=0.05, spacing=0.6, seed=0)
     uncovering = Uncovering(world, get_cover_detector("gt", world))
+    wall = time.perf_counter()
     stats = run_robots(world, get_detector("gt", world), 90.0, FIXED_ROLES, covers=uncovering)
+    wall = time.perf_counter() - wall
     print([(round(e.time, 1), e.robot_id, e.color.name, e.region, e.failed_stage) for e in stats.events],
-          uncovering.stats, uncovering.results, f"missed {stats.missed}, min arm distance {stats.min_arm_distance:.3f} m")
+          uncovering.stats, uncovering.results, f"missed {stats.missed}, min arm distance {stats.min_arm_distance:.3f} m, "
+          f"real-time factor {world.time / wall:.2f}")
     s = uncovering.stats
     assert s.lifted >= 2 and s.put_aside == s.lifted and s.handed_over == s.lifted
     assert stats.sorted_correctly >= s.handed_over
@@ -112,11 +116,19 @@ def test_stream_with_covered_boxes(physics_world):
 
 
 def test_demo_scene():
-    result = subprocess.run([sys.executable, str(SCRIPTS / "run_autonomous.py"), "--scene", "covered"],
-                            capture_output=True, text=True, timeout=300)
+    """`--scene covered`: a continuous stream of red / green / blue boxes, 30 % under a cover. Every box is sorted
+    (none fails, none leaves the belt), every lifted cover is put aside and its box handed over, Robot 1 sorts a box at
+    least every 20 s once the stream has reached it (a box comes every 12 s), no contact."""
+    result = subprocess.run([sys.executable, str(SCRIPTS / "run_autonomous.py"), "--scene", "covered", "--duration", "90"],
+                            capture_output=True, text=True, timeout=400)
     assert result.returncode == 0, result.stderr[-2000:]
     out = result.stdout
     print(out)
-    assert "covers: 1 lifted, 1 put aside, 1 boxes handed over to robot 1" in out
-    assert re.search(r"sorted correctly: 1, failed: 0,", out) and "0 contacts of robot 1 with a cover" in out
-    assert out.rstrip().endswith("0 contacts")
+    lifted, put_aside, handed_over = map(int, re.search(
+        r"covers: (\d+) lifted, (\d+) put aside, (\d+) boxes handed over", out).groups())
+    assert lifted >= 2 and put_aside == handed_over == lifted
+    sorted_boxes = int(re.search(r"sorted correctly: (\d+), failed: 0, left the belt: 0", out).group(1))
+    assert sorted_boxes >= 5
+    times = [float(t) for t in re.findall(r"t = +([0-9.]+) s  robot 1 ", out)]
+    assert max(np.diff(times)) <= 20.0, times
+    assert "0 contacts of robot 1 with a cover" in out and out.rstrip().endswith("0 contacts")

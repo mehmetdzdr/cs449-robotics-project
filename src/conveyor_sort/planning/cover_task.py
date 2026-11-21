@@ -220,9 +220,8 @@ class CoverTask:
                 with planning_view(world, robot, cover):     # resting height: COVER_REST instead of half a box
                     return plan_place(C, robot, cover, COVER_SPOT, clearance=COVER_REST - BOX_SIZE / 2)
 
-            first = place()
-            result.planning_time += first.planning_time
-            if not first.feasible:
+            first = [place()]                          # planned once: run() takes it, re-plans only after a wait
+            if not first[0].feasible:
                 # seen in CI once, for a cover lifted far downstream; it was let go above the belt and Robot 1's hand
                 # touched it there. Carried home first, as a box from the buffer was (#149)
                 def carry():
@@ -230,8 +229,9 @@ class CoverTask:
                         return plan_home(C, robot)
 
                 yield from run("carry", carry, HOME_TIME, carrying=cover)
+                first.clear()                          # from home: plan again
             if result.failed_stage is None:
-                placed = yield from run("place", place, PLACE_TIME, carrying=cover)
+                placed = yield from run("place", lambda: first.pop() if first else place(), PLACE_TIME, carrying=cover)
         yield from let_go(cover)
         left = yield from leave(cover)
         if not (left and placed):
