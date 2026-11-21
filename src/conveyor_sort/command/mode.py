@@ -36,7 +36,6 @@ class CommandMode:
         self.tracker = Tracker()
         self.tracks: list[Track] = []
         self.first_seen: dict[int, float] = {}
-        self.last_placed: dict[str, str] = {}      # region -> box lying in it
 
     def _step(self) -> None:
         self.world.step()
@@ -67,16 +66,11 @@ class CommandMode:
             if not task.advance():                 # the pick cannot be planned from here: try again a little later
                 blocked[track.track_id] = world.time + RETRY_DELAY
                 continue
-            if command.target_region in self.last_placed:   # a region holds one box: the previous one is collected
-                world.conveyor.remove(self.last_placed.pop(command.target_region))
             self._step()
             while task.advance():
                 self._step()
                 task.observe(self.tracks)      # physics: a box displaced during the approach is aimed at again (#104)
             result = task.result
-            if result.success:
-                if world.bot is None:          # physics: regions hold several boxes (slots, #93)
-                    self.last_placed[command.target_region] = result.box
             correct = (result.success and world.conveyor.colors[result.box] == command.color
                        and region_contains(world.C, command.target_region, world.C.getFrame(result.box).getPosition()))
             return CommandResult(command, result.success, correct, assignment.robot_id, result.box,

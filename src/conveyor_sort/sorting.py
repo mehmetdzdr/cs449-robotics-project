@@ -6,7 +6,7 @@ from typing import Callable
 import numpy as np
 
 from conveyor_sort.coordination.allocation import COLORED, FIXED_ROLES, LEAD_TIME, CoordinationLog, allocate
-from conveyor_sort.coordination.clear_and_sort import plan_clear_and_sort, plan_clearing_job
+from conveyor_sort.coordination.clear_and_sort import plan_clearing_job
 from conveyor_sort.interfaces import Assignment, BoxColor, Detection, Track
 from conveyor_sort.physics.contacts import arm_proximity
 from conveyor_sort.planning.pick_place import PickPlaceTask
@@ -77,7 +77,7 @@ def collect_if_full(world: World, region: str) -> bool:
     in a region at a time, so no arm is above it. Returns whether the region was emptied. Never the buffer (#101):
     its boxes are still to be sorted."""
     conveyor = world.conveyor
-    if world.bot is None or region == BUFFER or free_slot(world.C, region, conveyor.colors) is not None:
+    if region == BUFFER or free_slot(world.C, region, conveyor.colors) is not None:
         return False
     on_belt = set(conveyor.on_belt())
     for box in [b for b in conveyor.colors if b not in on_belt and b not in conveyor.held
@@ -92,26 +92,27 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
     """Every robot in `roles` (robot_id -> colors) sorts boxes of its colors into their default regions for
     `duration` seconds of simulation time. The robots work at the same time; `allocate` decides who takes
     which box. A box with a neighbour right in
-    front of or behind it is left alone, except with `clear_and_sort`. Kinematic backend: if the neighbour is gray,
-    Robot 2 removes it first and Robot 1 then sorts the box (needs both robots). Physics backend (#101): a clearing
+    front of or behind it is left alone, except with `clear_and_sort` (#101): a clearing
     job (`plan_clearing_job`, planned while every robot is free) removes the blockers one by one, each by whichever
     robot can reach it, into its own region or the buffer, then the target is sorted; a robot with nothing else to
     do takes a box from the buffer to its region. `SortingStats.clear_and_sort` has one entry per job; a blocked box that
     cannot be cleared before it leaves reach is reported in `SortingStats.infeasible` instead of tried (#102).
 
-    `detect()` returns the detections of the current camera frame (ground truth or a vision detector).
+    `detect()` returns the detections of the current camera frame (ground truth or a vision detector). Needs the
+    physics backend (World(..., physics=True)): the kinematic grasp and release were removed (#113).
 
     Recovery: a box whose attempt failed after the arm moved (`RETRY_STAGES`) is tried again RETRY_DELAY later
     if it is back on the belt and still reachable, up to MAX_ATTEMPTS attempts. `SortingStats.failures` counts
     the failures per stage, `SortingStats.drops` where slipped or dropped boxes came to rest. Physics backend:
     tasks still running at the end are finished (at most FINISH_TIMEOUT more), so no arm keeps a box.
     """
+    if world.bot is None:
+        raise ValueError("run_robots needs the physics backend (World(..., physics=True)), see #113")
     tracker = Tracker()
     stats = SortingStats()
     first_seen: dict[int, float] = {}
     blocked: dict[int, float] = {}         # track id -> not before this time; forever once the arm has moved for it
     tracks: list[Track] = []
-    last_placed: dict[str, str] = {}       # region -> box lying in it
     tasks: dict[int, tuple[PickPlaceTask, Track]] = {}
     attempts: Counter = Counter()          # track id -> pick-and-place tasks started for it
     failed_boxes: list = []                # (pick position, pick time, attempts) of boxes that may be back on the belt
@@ -128,8 +129,6 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
                     blocked[track.track_id] = float("inf")
                 del failed_boxes[i]
                 return
-    scheduled: dict[int, tuple[float, Assignment]] = {}   # clear-and-sort: robot -> (time to start moving, assignment)
-    pair: dict = {}                        # the running clear-and-sort: track ids "gray" and "wanted", "gray_ok"
     clearing: dict = {}                    # physics: the running clearing job: "job", "next" (index of the next step)
     buffer: list[str] = []                 # physics: boxes in the buffer, in the order they were put there
     not_before = {"clearing": 0.0, "buffer": 0.0}   # physics: next time a clearing job / a buffer pick is tried
@@ -152,7 +151,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
                 and region_contains(world.C, BUFFER, world.C.getFrame(task.box).getPosition())):
             buffer.append(task.box)            # fell back into the buffer: tried again
             not_before["buffer"] = world.time + RETRY_DELAY
-        in_job = track.track_id in job_tracks() or track.track_id in pair.values() or task.box is not None
+        in_job = track.track_id in job_tracks() or task.box is not None
         if result.failed_stage == "pick" and not in_job:   # no plan from here (e.g. box just
             blocked[track.track_id] = world.time + RETRY_DELAY   # entering the workspace): no time was used, try again later
             attempts[track.track_id] -= 1
@@ -165,20 +164,9 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
             failed_boxes.append((task.assignment.pick_position, task.assignment.pick_time, attempts[track.track_id]))
         correct = (result.success and DEFAULT_TARGET[world.conveyor.colors[result.box]] == region
                    and region_contains(world.C, region, world.C.getFrame(result.box).getPosition()))
-        if result.success:
-            if world.bot is None:              # physics: regions hold several boxes (slots, #93)
-                last_placed[region] = result.box
         stats.events.append(SortEvent(world.time, track.color, region, result.success, correct,
                                       result.failed_stage, result.planning_time, robot_id, result.dropped_on))
-        if track.track_id == pair.get("gray"):
-            pair["gray_ok"] = result.success
-            if not result.success and scheduled.pop(1, None):    # blocker still there: Robot 1 does not start
-                stats.clear_and_sort.append(False)
-                pair.clear()
-        elif track.track_id == pair.get("wanted"):
-            stats.clear_and_sort.append(correct and pair["gray_ok"])
-            pair.clear()
-        elif track.track_id in job_tracks():
+        if track.track_id in job_tracks():
             if not result.success or track.track_id == clearing["job"].target:   # a failed removal ends the job:
                 stats.clear_and_sort.append(correct)                            # the target is left alone
                 clearing.clear()
@@ -187,8 +175,6 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
 
     def start(assignment: Assignment, across_belt: bool = False) -> None:
         track = by_id[assignment.track_id]
-        if assignment.target_region in last_placed:   # regions are emptied (box collected) before the next box arrives
-            world.conveyor.remove(last_placed.pop(assignment.target_region))
         stats.regions_emptied += collect_if_full(world, assignment.target_region)   # physics: only when full (#142)
         tasks[assignment.robot_id] = PickPlaceTask(world, assignment, track, across_belt), track
         attempts[assignment.track_id] += 1
@@ -255,35 +241,17 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         log.waiting = set()
         while True:
             by_id = {track.track_id: track for track in tracks}
-            for robot_id, (start_time, assignment) in list(scheduled.items()):
-                if world.time >= start_time - 1e-9:
-                    del scheduled[robot_id]
-                    if assignment.track_id in by_id:
-                        start(assignment, across_belt=robot_id == 2)   # Robot 2: the wanted box is in the way along the belt
-                    else:                                              # track lost while waiting
-                        stats.clear_and_sort.append(False)
-                        scheduled.clear()
-                        pair.clear()
-            free = [robot_id for robot_id in roles if robot_id not in tasks and robot_id not in scheduled]
+            free = [robot_id for robot_id in roles if robot_id not in tasks]
             if any(task.box is not None for task, _ in tasks.values()):   # a box is taken from the buffer: the
                 free = []                                                  # other arm waits (see empty_buffer)
-            if clear_and_sort and world.bot is not None:
+            if clear_and_sort:
                 free = run_clearing(free)
-            if clear_and_sort and world.bot is None and not pair and set(free) >= {1, 2}:
-                plan = plan_clear_and_sort(world, tracks, first_seen, blocked, roles[1])
-                if plan:
-                    pair.update(gray=plan[0].track_id, wanted=plan[1].track_id, gray_ok=False)
-                    for assignment in plan:
-                        blocked[assignment.track_id] = float("inf")
-                        scheduled[assignment.robot_id] = assignment.pick_time - LEAD_TIME, assignment
-                    free = []
             busy_regions = {task.assignment.target_region for task, _ in tasks.values()}
             for assignment in (allocate(world, tracks, first_seen, blocked, roles, free, busy_regions,
                                         shared_area_busy(), log) if free else []):
                 blocked[assignment.track_id] = float("inf")
                 start(assignment)
-            if world.bot is not None:
-                empty_buffer([robot_id for robot_id in free if robot_id not in tasks])
+            empty_buffer([robot_id for robot_id in free if robot_id not in tasks])
             pending = [robot_id for robot_id in tasks if robot_id not in moved]
             if not pending:
                 break
@@ -294,10 +262,9 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
                     finish(robot_id)
         stats.waiting_time += world.dt * len(log.waiting - set(tasks))
         world.step()
-        if world.bot is not None:         # arm-arm contacts at the simulated poses (see physics/contacts.py)
-            distance, contacts = arm_proximity(world.C)
-            stats.min_arm_distance = min(stats.min_arm_distance, distance)
-            stats.arm_contacts += [(world.time, a, b) for a, b, _ in contacts]
+        distance, contacts = arm_proximity(world.C)   # arm-arm contacts at the simulated poses (physics/contacts.py)
+        stats.min_arm_distance = min(stats.min_arm_distance, distance)
+        stats.arm_contacts += [(world.time, a, b) for a, b, _ in contacts]
         tracks[:] = tracker.update(detect(), world.time)
         for task, _ in tasks.values():     # physics: a box displaced during the approach is aimed at again (#104)
             task.observe(tracks)
@@ -313,7 +280,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         if on_step:
             on_step(world)
     finish_end = world.time + FINISH_TIMEOUT
-    while world.bot is not None and tasks and world.time < finish_end:   # no arm keeps a box after the run
+    while tasks and world.time < finish_end:   # no arm keeps a box after the run
         for robot_id in list(tasks):
             if not tasks[robot_id][0].advance():
                 finish(robot_id)

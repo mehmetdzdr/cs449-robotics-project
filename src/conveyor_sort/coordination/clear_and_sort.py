@@ -1,12 +1,9 @@
 """Clear-and-sort: a box right in front of or behind a wanted box blocks the fingers, which close along the belt.
 
-Kinematic backend (`plan_clear_and_sort`): a gray box in the way of Robot 1 is taken away first by Robot 2
-(grasping it across the belt), then Robot 1 sorts.
-
-Physics backend (`plan_clearing_job`, #101): the blockers to remove come from `planning.clearing.plan_clearing`
-(#100), each removal goes to whichever robot can reach that blocker in time, and a robot that cannot take the
-blocker to its own region (Robot 1 and a gray box) puts it into the buffer, from where another robot takes it on.
-The steps run one after another, never two arms at the cluster at once (see `plan_clear_and_sort` for why).
+`plan_clearing_job` (#101): the blockers to remove come from `planning.clearing.plan_clearing` (#100), each removal
+goes to a robot that can reach that blocker in time and owns its color, then the target is sorted. The steps run one
+after another, never two arms at the cluster at once. (The kinematic clear-and-sort pair, two arms 4 s apart, was
+removed with the kinematic grasp in #113.)
 """
 from dataclasses import dataclass, field
 
@@ -14,23 +11,12 @@ import numpy as np
 
 from conveyor_sort.coordination.allocation import (BLOCK_X, BLOCK_Y, LEAD_TIME, MAX_PICK_SPEED, MIN_TRACK_AGE,
                                                    max_track_gap)
-from conveyor_sort.interfaces import Assignment, BoxColor, Track
+from conveyor_sort.interfaces import BoxColor, Track
 from conveyor_sort.planning.access import grasp_access
 from conveyor_sort.planning.clearing import plan_clearing
-from conveyor_sort.planning.reach import can_pick, is_reachable
+from conveyor_sort.planning.reach import can_pick
 from conveyor_sort.sim.regions import BUFFER, BUFFER_ROBOTS, DEFAULT_TARGET, REGION_ROBOTS
 from conveyor_sort.sim.world import World
-
-# Belt positions where Robot 2 may take the blocker, tried in this order [m]. They lie in the overlap of the
-# workspaces: Robot 2 must reach the gray box and Robot 1, a little later, the wanted box. Further downstream is
-# easier for Robot 2 (further from the limit of its reach), further upstream for Robot 1.
-CLEAR_XS = (0.1, 0.05, 0.0, -0.05, -0.1)
-ROBOT_2_MARGIN = [-0.1, 0.0, 0.15]   # Robot 2 must also reach this far upstream and up: at the limit the lift fails
-MAX_SPEED = 0.08      # belt speed [m/s], found by experiment
-# Robot 1 grasps this long after Robot 2: the gray box is lifted and on its way to the bin [s]. With the robots on
-# opposite sides (#154) both arms reach over the belt to the same spot from opposite sides: with 3 s they touched in
-# 8 of 9 scenarios, with 4 s none did (9 of 9 cleared, also with the boxes on either half of the belt).
-CLEAR_DELAY = 4.0
 
 
 def blockers(track: Track, tracks: list[Track], time: float) -> list[Track]:
@@ -42,45 +28,6 @@ def blockers(track: Track, tracks: list[Track], time: float) -> list[Track]:
         if other.track_id != track.track_id and abs(offset[0]) < BLOCK_X and abs(offset[1]) < BLOCK_Y:
             result.append(other)
     return result
-
-
-def plan_clear_and_sort(world: World, tracks: list[Track], first_seen: dict[int, float], blocked: dict[int, float],
-                        colors: tuple[BoxColor, ...]) -> tuple[Assignment, Assignment] | None:
-    """Assignments (Robot 2: gray blocker to the bin, Robot 1: wanted box to its region) for the first wanted box
-    that is blocked by exactly one gray box and can still be cleared in time; None if there is none.
-
-    Robot 2 grasps the gray box at the first of the positions `CLEAR_XS` that works for both robots,
-    Robot 1 the wanted box `CLEAR_DELAY` later.
-
-    Not on the physics backend (always None there: the pair is left alone). The physical grasp keeps Robot 2 at
-    the belt 2.2 s longer, and both arms work at the same spot: with CLEAR_DELAY Robot 2 lifted into Robot 1's
-    path (7 cm arm penetration), with 2.2 or 3.2 s more Robot 1 could not plan its pick past Robot 2's arm. Clearing
-    under physics: `plan_clearing_job`.
-    """
-    if world.bot is not None:
-        return None
-    usable = _usable(world, first_seen, blocked)
-
-    for wanted in tracks:
-        if wanted.color not in colors or not usable(wanted):
-            continue
-        in_the_way = blockers(wanted, tracks, world.time)
-        if len(in_the_way) != 1 or in_the_way[0].color != BoxColor.GRAY or not usable(in_the_way[0]):
-            continue
-        gray = in_the_way[0]
-        if gray.velocity[0] > MAX_SPEED:
-            continue
-        for clear_x in CLEAR_XS:
-            clear_time = gray.timestamp + (clear_x - gray.position[0]) / gray.velocity[0]
-            pick_time = clear_time + CLEAR_DELAY
-            if clear_time < world.time + LEAD_TIME:                # too late: the gray box is already further downstream
-                break
-            gray_position, wanted_position = gray.predict(clear_time), wanted.predict(pick_time)
-            if (can_pick(world.C, 1, wanted_position)
-                    and is_reachable(world.C, 2, gray_position) and is_reachable(world.C, 2, gray_position + ROBOT_2_MARGIN)):
-                return (Assignment(2, gray.track_id, DEFAULT_TARGET[BoxColor.GRAY], clear_time, gray_position),
-                        Assignment(1, wanted.track_id, DEFAULT_TARGET[wanted.color], pick_time, wanted_position))
-    return None
 
 
 def _usable(world: World, first_seen: dict[int, float], blocked: dict[int, float]):

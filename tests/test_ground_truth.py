@@ -22,14 +22,6 @@ def test_detections_match_boxes_on_belt():
         assert det.timestamp == pytest.approx(10.0)
 
 
-def test_grasped_box_is_not_detected():
-    world = World(ConveyorConfig(spacing=100.0))
-    world.step()
-    (name,) = world.conveyor.on_belt()
-    world.conveyor.attach(name, "l_gripper")
-    assert GroundTruthDetector(world).detect() == []
-
-
 def test_consecutive_detections_give_belt_velocity():
     world = World(ConveyorConfig(speed=0.15, spacing=100.0, color_weights={BoxColor.RED: 1.0}))
     detector = GroundTruthDetector(world)

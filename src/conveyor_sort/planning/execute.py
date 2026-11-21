@@ -1,9 +1,8 @@
-"""Execute planned joint paths in the simulation world; kinematic grasp (box is attached to the gripper)."""
+"""Execute planned joint paths in the simulation world."""
 from typing import Callable, Iterator
 
 import numpy as np
 
-from conveyor_sort.sim.scene import ROBOT_PREFIX
 from conveyor_sort.sim.world import World
 
 
@@ -41,25 +40,3 @@ def execute_path(world: World, path: np.ndarray, duration: float,
         if on_step:
             on_step(world)
 
-
-def grasp(world: World, robot_id: int, box: str | None = None, tolerance: float = 0.01) -> str | None:
-    """Kinematic grasp: attach a box to the gripper if the gripper centre is within `tolerance` of the box centre.
-
-    Without `box`, the box on the belt closest to the gripper is taken. Returns the grasped box name, or None.
-    """
-    gripper = world.C.getFrame(f"{ROBOT_PREFIX[robot_id]}gripper")
-
-    def distance(name: str) -> float:
-        return float(np.linalg.norm(gripper.getPosition() - world.C.getFrame(name).getPosition()))
-
-    if box is None:
-        box = min(world.conveyor.on_belt(), key=distance, default=None)
-    if box is None or distance(box) > tolerance:
-        return None
-    world.conveyor.attach(box, gripper.name)
-    return box
-
-
-def release(world: World, box: str, region: str) -> None:
-    """Kinematic release: the box stays where it is and becomes a child of the region."""
-    world.conveyor.attach(box, region)

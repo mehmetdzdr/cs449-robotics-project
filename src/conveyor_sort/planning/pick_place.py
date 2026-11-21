@@ -8,7 +8,7 @@ from conveyor_sort.interfaces import Assignment, Track
 from conveyor_sort.physics.friction_grasp import FINGER_OPEN, FINGER_SQUEEZE
 from conveyor_sort.physics.grasping import (SLIP_TOLERANCE, SQUEEZE_SETTLE, SQUEEZE_TIME, box_at_gripper, holding,
                                             ignoring, planning_view)
-from conveyor_sort.planning.execute import follow_path, grasp, release
+from conveyor_sort.planning.execute import follow_path
 from conveyor_sort.planning.pick import Plan, plan_home, plan_lift, plan_moving_pick, plan_place
 from conveyor_sort.sim.conveyor import BOX_SIZE
 from conveyor_sort.sim.regions import REGIONS, SLOTS, free_slot, free_slots, region_contains, slot_position
@@ -72,13 +72,14 @@ class PickPlaceTask:
         self.result = PickPlaceResult(False, 0.0, None, None)
         self._world, self._track = world, track
         self._picking, self._update, self._replans = False, None, 0   # physics backend: see observe()
-        self._checked_lift: Plan | None = None                       # see _plan_pick
         self.waits = 0     # physics backend: stages that waited for the other arm, or picks given up for it (#141)
         # the arm is over the belt (or on its way there): from the start until the box is lifted (#154). With a
         # failed pick or lift it stays True until the task ends (the arm goes home from the belt).
         self.at_belt = box is None
-        self._steps = self._run_physical(world, assignment, track) if world.bot is not None else \
-            self._run(world, assignment, track)
+        if world.bot is None:
+            raise ValueError("PickPlaceTask needs the physics backend (World(..., physics=True)); the kinematic grasp "
+                             "and release were removed (#113)")
+        self._steps = self._run_physical(world, assignment, track)
 
     def advance(self) -> bool:
         return next(self._steps, False)
@@ -116,39 +117,6 @@ class PickPlaceTask:
               and pick_time - world.time > MIN_REPLAN_TIME):
             self._update, self._track = track, track
 
-    def _run(self, world: World, assignment: Assignment, track: Track) -> Iterator[bool]:
-        C, robot, result = world.C, assignment.robot_id, self.result
-
-        def run(stage: str, plan: Plan, duration: float) -> Iterator[bool]:
-            result.planning_time += plan.planning_time
-            if not plan.feasible:
-                result.failed_stage = result.failed_stage or stage
-                return False
-            for _ in follow_path(world, plan.path, duration, robot):
-                yield True
-            return True
-
-        if not (yield from run("pick", self._plan_pick(world, assignment, track), assignment.pick_time - world.time)):
-            return
-        result.box = grasp(world, robot)
-        if result.box is None:
-            result.failed_stage = "grasp"
-            yield from run("home", plan_home(C, robot), HOME_TIME)
-            return
-        # the arm is exactly where the pick ended: the lift checked from there is used (planned again, KOMO's
-        # random start found no lift in some runs at the edge of the workspace, and the arm held the box at the belt)
-        lift = self._checked_lift        # its planning time is already counted in the pick's
-        lifted = yield from run("lift", Plan(lift.path, lift.feasible, 0.0), LIFT_TIME)
-        self.at_belt = not lifted
-        result.success = (
-            lifted
-            and (yield from run("place", plan_place(C, robot, result.box, assignment.target_region), PLACE_TIME))
-            and (release(world, result.box, assignment.target_region) or True)
-            and (yield from run("retreat", plan_lift(C, robot, height=0.1), RETREAT_TIME))
-            and (yield from run("home", plan_home(C, robot), HOME_TIME))
-        )
-
-
     def _plan_pick(self, world: World, assignment: Assignment, track: Track) -> Plan:
         """Moving pick, feasible only if the lift from its grasp pose can be planned too."""
         C, robot = world.C, assignment.robot_id
@@ -159,7 +127,6 @@ class PickPlaceTask:
             lift = plan_lift(C, robot)
             C.setJointState(q)
             pick = Plan(pick.path, lift.feasible, pick.planning_time + lift.planning_time)
-            self._checked_lift = lift
         return pick
 
     def _run_physical(self, world: World, assignment: Assignment, track: Track) -> Iterator[bool]:

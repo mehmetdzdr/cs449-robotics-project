@@ -160,10 +160,6 @@ class Conveyor:
         if self.bot is not None:      # before the start, the simulation takes the poses from C
             self.bot.cheat_setFramePose(name, np.concatenate([position, quaternion]))
 
-    def attach(self, box: str, parent: str) -> None:
-        """Re-parent a box (to a gripper when grasped, to a region when placed), keeping its world pose."""
-        self.C.getFrame(box).setParent(self.C.getFrame(parent), True)
-
     def remove(self, box: str) -> None:
         """Take a box out of the simulation.
 
