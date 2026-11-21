@@ -241,7 +241,7 @@ def test_the_uncovered_box_goes_to_robot_1():
     lift_started = u.world.time - 2.0
     u._handover = (np.array([-0.4, 0.2, 0.74]), lift_started, lift_started - 1.0)
     box = Track(7, BoxColor.BLUE, np.array([-0.4 + SPEED * 2.0 + 0.04, 0.2, 0.65]), np.array([SPEED, 0, 0]), u.world.time)
-    old = Track(6, BoxColor.RED, np.array([-0.4 + SPEED * 2.0 - 0.02, 0.2, 0.65]), np.array([SPEED, 0, 0]), u.world.time)
+    old = Track(6, BoxColor.RED, np.array([-0.4 + SPEED * 2.0 - 0.08, 0.2, 0.65]), np.array([SPEED, 0, 0]), u.world.time)
     gray = Track(8, BoxColor.GRAY, np.array([0.5, 0.2, 0.65]), np.array([SPEED, 0, 0]), u.world.time)
     first_seen = {7: lift_started + 0.5, 6: 0.0, 8: 0.0}       # track 6 was seen before the cover was grasped
     free, assignments = u.start([1, 2], {}, False, [old, box, gray], first_seen)

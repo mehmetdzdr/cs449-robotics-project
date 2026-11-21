@@ -40,6 +40,7 @@ class CoverResult:
     carry_tilt: float = 0.0         # largest tilt of the cover in the gripper (lift and place) [deg]
     place_error: float | None = None  # cover to spot centre, xy [m]
     tilt: float | None = None       # cover tilt on the spot [deg]
+    trace: list = None              # TEMPORARY (#177 debugging): (stage, time, cover xy error to spot, tilt, waits)
 
 
 @contextmanager
@@ -83,6 +84,14 @@ class CoverTask:
         others = [r for r in world.fingers if r != robot]
         gripper = C.getFrame(f"{ROBOT_PREFIX[robot]}gripper")
 
+        result.trace = []
+
+        def note(stage: str) -> None:
+            if result.cover is not None:
+                spot_xy = C.getFrame(COVER_SPOT).getPosition()[:2]
+                result.trace.append((stage, round(world.time, 2), round(float(np.linalg.norm(
+                    C.getFrame(result.cover).getPosition()[:2] - spot_xy)), 3), round(tilt(C, result.cover), 1), self.waits))
+
         def too_close(path, duration: float) -> bool:
             now = world.time + world._t0
             return (any(world.arms.moving_until(r) > now for r in others)
@@ -112,6 +121,7 @@ class CoverTask:
                         result.failed_stage = result.failed_stage or "drop"
                         return False
                 yield True
+            note(stage)
             return True
 
         def wait(duration: float) -> Iterator[bool]:
@@ -191,8 +201,11 @@ class CoverTask:
                     return plan_place(C, robot, cover, COVER_SPOT, clearance=COVER_REST - BOX_SIZE / 2)
 
             placed = yield from run("place", place, PLACE_TIME, carrying=cover)
+        note("placed")
         yield from let_go(cover)
+        note("released")
         left = yield from leave(cover)
+        note("home")
         if not (left and placed):
             return
         position = C.getFrame(cover).getPosition()
