@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Iterator
 
 import numpy as np
+import robotic as ry
 
 from conveyor_sort.interfaces import Assignment, Track
 from conveyor_sort.physics.friction_grasp import FINGER_OPEN, FINGER_SQUEEZE
@@ -21,10 +22,16 @@ from conveyor_sort.planning.pick_place import (CLEARANCE, DROP_DISTANCE, HOME_TI
                                                PLACE_TIME, RETREAT_TIME)
 from conveyor_sort.sim.conveyor import BOX_SIZE
 from conveyor_sort.sim.covers import COVER_REST, COVER_SPOT, cover_frames, tilt
-from conveyor_sort.sim.scene import ROBOT_PREFIX
+from conveyor_sort.sim.scene import HOME_Q, ROBOT_PREFIX, arm_joints
 from conveyor_sort.sim.world import World
 
 SPOT_TOLERANCE = 0.05   # a cover put aside must stand this close to the spot centre (xy) [m]
+# After letting go of a cover the arm retreats RETREAT_HEIGHT up and goes home keeping COVER_MARGIN from it. With a
+# box's 10 cm retreat and plain plan_home, the way home from the spot knocked the cover over in every loop run in CI
+# (tilt 108 to 114 deg, 0.2 to 0.6 m away), while the other arm moved and both arms were planned: the cover stood
+# untouched after the release and after the retreat, so the path home swept through it between KOMO's waypoints.
+RETREAT_HEIGHT = 0.2   # [m]
+COVER_MARGIN = 0.03    # [m]
 
 
 @dataclass
@@ -41,6 +48,25 @@ class CoverResult:
     place_error: float | None = None  # cover to spot centre, xy [m]
     tilt: float | None = None       # cover tilt on the spot [deg]
     trace: list = None              # TEMPORARY (#177 debugging): (stage, time, cover xy error to spot, tilt, waits)
+
+
+def plan_home_clear(C: ry.Config, robot_id: int, cover: str, steps: int = 20) -> Plan:
+    """`plan_home`, with the robot's hand and forearm at least COVER_MARGIN from every part of `cover`."""
+    from conveyor_sort.planning.pick import _OWN_ARM_ONLY, _arm_shapes, _komo, _solve
+    q = C.getJointState()
+    komo = _komo(C, steps, robot_id)
+    komo.addControlObjective([], 2, 1e0)
+    komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
+    komo.addObjective([], ry.FS.jointLimits, [], ry.OT.ineq)
+    for shape in _arm_shapes(C, robot_id):
+        for part in cover_frames(C, cover):
+            komo.addObjective([], ry.FS.negDistance, [shape, part], ry.OT.ineq, [1e1], [-COVER_MARGIN])
+    for r, prefix in ROBOT_PREFIX.items():      # targets as in plan_home
+        if r == robot_id or id(C) not in _OWN_ARM_ONLY:
+            target = HOME_Q if r == robot_id else q[arm_joints(C, r)]
+            komo.addObjective([1.0], ry.FS.qItself, [f"{prefix}panda_joint{i}" for i in range(1, 8)], ry.OT.eq, [1e1], target)
+    komo.addObjective([1.0], ry.FS.qItself, [], ry.OT.eq, [1e1], [], 1)
+    return _solve(komo)
 
 
 @contextmanager
@@ -138,11 +164,13 @@ class CoverTask:
         def leave(cover: str | None) -> Iterator[bool]:
             def retreat():
                 with planning_view(world, robot), ignoring_cover(C, cover):
-                    return plan_lift(C, robot, height=0.1)
+                    return plan_lift(C, robot, height=RETREAT_HEIGHT)
 
             def home():
                 with planning_view(world, robot):
-                    return plan_home(C, robot)
+                    clear = plan_home_clear(C, robot, cover) if cover is not None else None
+                    return clear if clear is not None and clear.feasible else plan_home(C, robot)   # e.g. a cover
+                    #                                                     dropped next to the arm: home anyway
 
             if not (yield from run("retreat", retreat, RETREAT_TIME)):
                 return False
@@ -200,7 +228,18 @@ class CoverTask:
                 with planning_view(world, robot, cover):     # resting height: COVER_REST instead of half a box
                     return plan_place(C, robot, cover, COVER_SPOT, clearance=COVER_REST - BOX_SIZE / 2)
 
-            placed = yield from run("place", place, PLACE_TIME, carrying=cover)
+            first = place()
+            result.planning_time += first.planning_time
+            if not first.feasible:
+                # seen in CI once, for a cover lifted far downstream; it was let go above the belt and Robot 1's hand
+                # touched it there. Carried home first, as a box from the buffer was (#149)
+                def carry():
+                    with planning_view(world, robot, cover):
+                        return plan_home(C, robot)
+
+                yield from run("carry", carry, HOME_TIME, carrying=cover)
+            if result.failed_stage is None:
+                placed = yield from run("place", place, PLACE_TIME, carrying=cover)
         note("placed")
         yield from let_go(cover)
         note("released")
