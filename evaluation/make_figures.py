@@ -2,8 +2,8 @@
 
     python evaluation/make_figures.py            (needs matplotlib: pip install -e ".[eval]")
 
-Reads results/{manipulation,manipulation_physics,perception,perception_scenarios,prediction,prediction_physics,command,command_fast,
-command_physics,scenario_matrix}.csv, written by the benchmark scripts
+Reads results/{manipulation,manipulation_physics,perception,perception_scenarios,prediction,prediction_physics,
+command,command_fast,command_physics,scenario_matrix,clearing}.csv, written by the benchmark scripts
 in this directory, and writes evaluation/figures/*.png and evaluation/figures/tables.md. A missing CSV is skipped.
 """
 import argparse
@@ -327,6 +327,29 @@ if records:
     table(f"Scenario matrix on physics: observed outcome per cell ({ok} of {len(records)} as expected, "
           f"{sum(int(r['arm_contacts']) for r in records)} arm contacts)",
           ["neighbourhood", "lateral"] + [f"{v:g} m/s" for v in speeds] + ["expected"], rows)
+
+# ---------------------------------------------------------------- blocked and surrounded targets (#108)
+records = read("clearing.csv")
+if records:
+    cells = defaultdict(list)
+    for r in records:
+        cells[r["layout"], float(r["speed"])].append(r)
+    free = {v: np.nanmean([float(r["time"]) for r in rs if r["outcome"] == "sorted"]) for (layout, v), rs in cells.items()
+            if layout == "free"}
+    rows = []
+    for (layout, v), rs in cells.items():
+        success = [r for r in rs if r["outcome"] in ("sorted", "cleared")]
+        extra = [float(r["time"]) - free[v] for r in success if v in free]
+        rate = lambda n: f"{n / len(rs):.0%}"
+        rows.append([layout, f"{v:g}", str(len(rs)), rs[0]["expected"], rate(len(success)),
+                     rate(sum(r["outcome"] == "infeasible" for r in rs)),
+                     rate(sum(r["outcome"] in ("failed", "missed") for r in rs)),
+                     f"{np.mean(extra):+.1f}" if extra and layout != "free" else "-",
+                     str(sum(int(r["arm_contacts"]) for r in rs))])
+    table("Blocked and surrounded targets on physics (runs per cell; extra time: to sort the target, against a free "
+          "target at the same speed)",
+          ["neighbourhood", "belt [m/s]", "runs", "expected", "sorted", "infeasible reported", "failed or missed",
+           "extra time [s]", "arm contacts"], rows)
 
 (args.out / "tables.md").write_text("\n".join(tables), encoding="utf-8")
 print(f"wrote {args.out / 'tables.md'}")

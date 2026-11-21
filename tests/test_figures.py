@@ -85,3 +85,20 @@ def test_perception_scenarios_tables(tmp_path):
     assert "| free | touching | hsv | 6 | 83.3% | 0.0% | 2.0 |" in tables
     assert "Perception on BotOp images: target partly covered by an arm" in tables
     assert "| 0.15/0.03 | 41% | found | - |" in tables
+
+
+def test_clearing_table(tmp_path):
+    pytest.importorskip("matplotlib")
+    results, out = tmp_path / "results", tmp_path / "figures"
+    results.mkdir()
+    header = "layout,speed,run,lateral,expected,outcome,time,failed_stages,arm_contacts,min_arm_distance"
+    rows = ["free,0.05,0,centre,sorted,sorted,10.0,,0,inf", "free,0.05,1,centre,sorted,sorted,12.0,,0,inf",
+            "front_side,0.05,0,centre,cleared,cleared,23.0,,0,0.1", "front_side,0.05,1,centre,cleared,failed,nan,grasp,0,0.1",
+            "surrounded,0.1,0,centre,infeasible,infeasible,nan,,0,inf"]
+    (results / "clearing.csv").write_text("\n".join([header] + rows) + "\n")
+    run("make_figures.py", "--results", results, "--out", out)
+    tables = (out / "tables.md").read_text()
+    assert "## Blocked and surrounded targets on physics" in tables
+    assert "| front_side | 0.05 | 2 | cleared | 50% | 0% | 50% | +12.0 | 0 |" in tables
+    assert "| surrounded | 0.1 | 1 | infeasible | 0% | 100% | 0% | - | 0 |" in tables
+
