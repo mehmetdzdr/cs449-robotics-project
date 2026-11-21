@@ -10,6 +10,10 @@ LEAD_TIME = 3.0        # time from the decision to the grasp [s]
 MIN_TRACK_AGE = 1.0    # a track must have been followed this long before it is picked (velocity estimate settled) [s]
 MAX_TRACK_GAP = 0.2    # ... and must have been seen this recently [s]
 MAX_TRACK_GAP_BOTOP = 0.7   # ... on the physics backend: BotOp renders a new camera image only every 0.35 to 0.5 s (#94)
+# Boxes faster than this are not picked (#106): at 0.3 m/s a grasp at the far edge of the belt near its middle put
+# Robot 1's arm right in front of Robot 2 resting at home, and the place motion touched it (scenario matrix, physics);
+# a planning margin that prevented it also blocked the same grasp at 0.2 m/s. Every benchmark runs at 0.2 m/s or less.
+MAX_PICK_SPEED = 0.25   # [m/s]
 # Part of the belt (x) where each robot picks [m]. The robots stand on opposite sides of the belt at x = 0 (#154) and
 # both reach x in [-0.6, 0.6] on its centre line: Robot 1 picks upstream, Robot 2 downstream, both in the middle band.
 PICK_X = {1: (-1.1, 0.15), 2: (-0.15, 1.1)}
@@ -65,7 +69,8 @@ def allocate(world: World, tracks: list[Track], first_seen: dict[int, float], bl
             if (track.color in roles[robot_id] and DEFAULT_TARGET[track.color] not in busy_regions
                     and world.time >= blocked.get(track.track_id, 0.0)
                     and world.time - first_seen[track.track_id] >= MIN_TRACK_AGE
-                    and world.time - track.timestamp <= max_track_gap(world) and x_min <= x <= x_max):
+                    and world.time - track.timestamp <= max_track_gap(world) and x_min <= x <= x_max
+                    and track.velocity[0] <= MAX_PICK_SPEED):
                 pairs.append(((x_max - x) / max(track.velocity[0], 1e-6), robot_id, track))
 
     assignments: dict[int, Assignment] = {}
