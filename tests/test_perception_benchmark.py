@@ -45,3 +45,21 @@ def test_dense_arrangement_has_touching_boxes_and_brightness_scales_the_image():
     (_, dark), = make_scenes(1, seed=3, brightness=0.5)
     (_, normal), = make_scenes(1, seed=3)
     assert dark.rgb.mean() == pytest.approx(normal.rgb.mean() / 2, rel=0.02)
+
+
+def test_occluded_scenes_put_a_gripper_over_a_box():
+    """#110: in every scene one gripper hovers 5 to 15 cm above a box (about 6 to 16 cm above its top face)."""
+    scenes = make_scenes(4, seed=1000, arrangement="occluded")
+    for world, obs in scenes:
+        boxes = [world.C.getFrame(n).getPosition() for n in world.conveyor.on_belt()]
+        if not boxes:
+            continue
+        grippers = [world.C.getFrame(g).getPosition() for g in ("l_gripper", "r_gripper")]
+        assert min(np.linalg.norm(g[:2] - b[:2]) for g in grippers for b in boxes) < 0.06
+        assert any(0.05 < g[2] - b[2] < 0.2 for g in grippers for b in boxes)
+
+
+def test_partly_hidden_boxes_are_counted_separately():
+    scenes = make_scenes(10, seed=1000, arrangement="occluded")
+    metrics = evaluate(scenes, lambda obs: [])                # finds nothing
+    assert metrics["partly_hidden"] >= 1 and metrics["partly_hidden_recall"] == 0.0 and metrics["recall"] == 0.0
