@@ -20,3 +20,15 @@ def test_slow_tests_are_marked():
                  "test_friction_grasp.py"):
         assert "pytestmark = pytest.mark.slow" in (ROOT / "tests" / name).read_text(), name
     assert "@pytest.mark.slow\n@pytest.mark.parametrize(\"robot_id, region, pick_x\"" in (ROOT / "tests" / "test_region_slots.py").read_text()
+
+
+def test_full_suite_has_time_to_finish():
+    """The full suite takes about 90 min: with one 60 min limit for everything the nightly run was cancelled at 72 %
+    (#173). Fast and full run are separate jobs with their own limits."""
+    import re
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    fast, full = ci.split("\n  fast:\n")[1].split("\n  full:\n")
+    limit = {name: int(re.search(r"timeout-minutes: (\d+)", job).group(1)) for name, job in (("fast", fast), ("full", full))}
+    assert limit["fast"] <= 30 and limit["full"] >= 120
+    assert 'pytest -q -m "not slow"' in fast and "pytest -q --reruns 1" in full and "--durations" in full
+    assert "pull_request" in fast.split("runs-on")[0] and "schedule" in full.split("runs-on")[0]
