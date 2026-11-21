@@ -30,13 +30,14 @@ Top-camera recordings (BotOp physics, real time), in the release
 | video | command |
 |---|---|
 | [autonomous_coordinated_gt.mp4](https://github.com/mehmetdzdr/cs449-robotics-project/releases/download/demos-2026-11-21/autonomous_coordinated_gt.mp4): both robots, ground-truth detections, 60 s: 7 of 7 sorted | `run_autonomous.py --mode coordinated --duration 60` |
-| [autonomous_coordinated_hsv.mp4](https://github.com/mehmetdzdr/cs449-robotics-project/releases/download/demos-2026-11-21/autonomous_coordinated_hsv.mp4): the same with the HSV detector in the loop: 4 sorted, 4 picks failed | `run_autonomous.py --mode coordinated --detector hsv --duration 60` |
+| [autonomous_coordinated_hsv.mp4](https://github.com/mehmetdzdr/cs449-robotics-project/releases/download/demos-2026-11-21/autonomous_coordinated_hsv.mp4): the same with the HSV detector in the loop: 7 of 7 sorted | `run_autonomous.py --mode coordinated --detector hsv --duration 60` |
 | [command_mode.mp4](https://github.com/mehmetdzdr/cs449-robotics-project/releases/download/demos-2026-11-21/command_mode.mp4): three commands in a row | `run_command.py "pick a red box and place it at A" "put a gray box into the bin" "pick a green box and place it at B"` |
 | [clear_and_sort.mp4](https://github.com/mehmetdzdr/cs449-robotics-project/releases/download/demos-2026-11-21/clear_and_sort.mp4): Robot 2 removes a gray box blocking a red one, Robot 1 sorts the red box | `run_autonomous.py --scene clear-and-sort --duration 50` |
 
-With a detector in the loop more picks fail. Every frame is rendered (about 0.15 s) while the physics runs on
-in real time, so the tracks are probably late (not yet measured). The manipulation benchmarks below use
-ground-truth detections; the detectors are measured separately.
+With the HSV detector in the loop, 10 runs of 60 s (0.1 m/s) sorted 5 to 8 boxes each with no lost picks; on the
+same streams ground truth sorted slightly more (27 against 24 on four streams, one grasp failure more per two
+runs). BotOp's camera renders nothing while the loop plans, so images are stamped with the time they show (#171).
+The manipulation benchmarks below use ground-truth detections; the detectors are measured separately.
 
 ## Pipeline
 

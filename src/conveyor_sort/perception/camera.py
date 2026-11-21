@@ -8,7 +8,10 @@ import robotic as ry
 from conveyor_sort.sim.scene import TOP_CAMERA
 
 _WITH_BOT: "weakref.WeakSet[Camera]" = weakref.WeakSet()   # cameras that use a BotOp (see release_bot)
-IMAGE_LATENCY = 0.075   # BotOp: a new image shows the scene this long before it is first returned, captures every 0.05 s [s]
+IMAGE_DELAY = 0.05   # BotOp: a new image shows the scene this long before it is ready to be returned [s]
+MAX_RENDER_WAIT = 0.1   # BotOp renders while the loop waits in a step; a longer interval between captures is the
+#                        loop busy (planning), and the camera renders nothing new meanwhile [s]
+MAX_BUSY = 4.0   # after a longer interval the image's age is unknown (a 9.7 s plan: the image was 3.7 s old) [s]
 
 
 @dataclass
@@ -35,9 +38,13 @@ class Camera:
 
     BotOp's simulation renders a new camera image only every 0.35 to 0.5 s (software rendering under xvfb), and
     `getImageAndDepth` returns the latest one. `capture` notices a new image (call it every step) and stamps the
-    observation with the capture time minus IMAGE_LATENCY; repeated images keep their time, the first one (there
-    before the first capture, of unknown age) is stamped -inf. The true image time is not available; with a
-    capture every 0.05 s the stamp is off by about 0.013 s (sd), with slower captures by 0.03 to 0.07 s. The
+    observation with the time it shows: the previous capture plus half the interval since (at most
+    MAX_RENDER_WAIT / 2), minus IMAGE_DELAY. Repeated images keep their time; the first one (there before the
+    first capture, of unknown age) and one after more than MAX_BUSY without a capture are stamped -inf. BotOp's camera renders nothing new while the Python loop is
+    busy: after a KOMO plan of 2 s the next image is 2 s old (measured: image age = blocking time within 0.05 to
+    0.4 s). Stamped with the capture time minus 0.075 s, such images put boxes up to 0.2 m behind, tracks split
+    and picks were given up as lost; slower steps (0.17 s with a video render) made every stamp 0.05 s too late.
+    With a capture every 0.05 s the stamp is off by about 0.013 s (sd). The
     segmentation is of the current state, so it matches the image only on a stopped belt.
     """
 
@@ -54,6 +61,7 @@ class Camera:
         self.segmentation = segmentation or bot is None
         self._last_rgb: np.ndarray | None = None
         self._image_time = 0.0
+        self._last_capture = float("-inf")
         self._view = None
         self._frame_names: list[str] = []
 
@@ -75,8 +83,12 @@ class Camera:
             fxycxy = np.asarray(self.bot.getCameraFxycxy(self.frame_name))
             if self._last_rgb is None:        # the image there was before: its age is unknown (seen: 0.2 m off)
                 self._image_time, self._last_rgb = float("-inf"), rgb
+            elif timestamp - self._last_capture > MAX_BUSY:   # a new image of unknown age
+                self._image_time, self._last_rgb = float("-inf"), rgb
             elif not np.array_equal(rgb, self._last_rgb):    # a new image
-                self._image_time, self._last_rgb = timestamp - IMAGE_LATENCY, rgb
+                shows = self._last_capture + min(timestamp - self._last_capture, MAX_RENDER_WAIT) / 2
+                self._image_time, self._last_rgb = shows - IMAGE_DELAY, rgb
+            self._last_capture = timestamp
             timestamp = self._image_time
         frame = self.C.getFrame(self.frame_name)
         return Observation(
