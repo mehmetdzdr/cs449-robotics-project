@@ -68,9 +68,15 @@ class World:
                 on_step(self)
 
     def close(self) -> None:
-        """Stop the physics simulation (no-op for the kinematic backend)."""
+        """Stop the physics simulation (no-op for the kinematic backend). Every reference to the BotOp goes here, so
+        its destructor runs now: one left behind (a camera of a detector, `ArmReferences` kept by a caller) freed it
+        later in garbage collection, while other simulations ran, and crashed in PhysX."""
         if self.bot is not None:
+            from conveyor_sort.perception.camera import release_bot
+            release_bot(self.bot)
             self.conveyor.bot = None      # the last reference must go, or BotOp lives on (and crashes at exit)
+            if self.arms is not None:
+                self.arms.bot = None
             self.arms = None
             del self.bot
             self.bot = None

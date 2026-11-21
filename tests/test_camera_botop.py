@@ -104,3 +104,16 @@ def test_hsv_detector_timing_is_unchanged(physics_world):
         print(f"{name}: {len(detections)} detections, detect {timings[name] * 1000:.1f} ms")
         assert len(detections) == len(boxes)
     assert timings["botop"] < 1.5 * timings["view"] + 0.005
+
+
+def test_closing_the_world_releases_the_simulation_from_cameras_and_detectors():
+    """A detector (its camera) or ArmReferences that outlive the world must not keep BotOp alive: its destructor then
+    ran later in garbage collection, while other simulations ran, and crashed in PhysX (CI segfaults since #154)."""
+    world = World(ConveyorConfig(max_boxes=0), physics=True)
+    camera = Camera(world.C, bot=world.bot)
+    detect, arms = get_detector("hsv", world), world.arms
+    detect()
+    world.close()
+    assert camera.bot is None and arms.bot is None and world.bot is None
+    assert camera.capture(world.time).rgb.shape == (720, 1280, 3)     # it still renders, from C
+    assert detect() == []                                              # no boxes on the belt

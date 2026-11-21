@@ -1,4 +1,5 @@
 """Camera capture: renders rgb, depth and ground-truth segmentation from a camera frame of the scene."""
+import weakref
 from dataclasses import dataclass
 
 import numpy as np
@@ -6,6 +7,7 @@ import robotic as ry
 
 from conveyor_sort.sim.scene import TOP_CAMERA
 
+_WITH_BOT: "weakref.WeakSet[Camera]" = weakref.WeakSet()   # cameras that use a BotOp (see release_bot)
 IMAGE_LATENCY = 0.075   # BotOp: a new image shows the scene this long before it is first returned, captures every 0.05 s [s]
 
 
@@ -44,6 +46,8 @@ class Camera:
         self.C = C
         self.frame_name = frame_name
         self.bot = bot
+        if bot is not None:
+            _WITH_BOT.add(self)
         # with `bot`, segmentation=False skips the CameraView render (0.13 s): the observation's segmentation is
         # None, and a capture every step (0.05 s) notices new images in time (#96: 0.15 s steps gave HSV grasps
         # 1 to 2 cm off along the belt, where the fingers leave 1 cm)
@@ -84,3 +88,14 @@ class Camera:
             cam_rotation=frame.getRotationMatrix(),
             timestamp=timestamp,
         )
+
+
+def release_bot(bot: ry.BotOp) -> None:
+    """Called by `World.close`: every camera using `bot` falls back to rendering C itself, so it no longer keeps the
+    simulation alive. A camera in a detector closure that outlived its world (e.g. kept by a failed test's
+    traceback) otherwise held the BotOp until the garbage collector freed it, at a random later moment, while other
+    simulations ran: BotOp's destructor then crashed in PhysX (segmentation fault in about 4 of 10 CI runs)."""
+    for camera in list(_WITH_BOT):
+        if camera.bot is bot:
+            camera.bot = None
+            camera.segmentation = True    # renders C from now on (without BotOp there is no other image)
