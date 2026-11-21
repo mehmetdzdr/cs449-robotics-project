@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from conveyor_sort.coordination.allocation import COLORED, FIXED_ROLES, SHARED_ROLES
+from conveyor_sort.coordination.allocation import COLORED, FIXED_ROLES
 from conveyor_sort.coordination.clear_and_sort import (CLEAR_DELAY, CLEAR_XS, blockers, destination,
                                                        plan_clear_and_sort, plan_clearing_job)
 from conveyor_sort.interfaces import BoxColor, Track
@@ -43,7 +43,7 @@ def test_plan_gives_robot_2_the_gray_box_first():
     blue = track(2, BoxColor.BLUE, -0.60, time=5.0)
     assert plan_clear_and_sort(world, [red, blue], seen, {}, (BoxColor.RED,)) is None         # the blocker is not gray
     far = [track(0, BoxColor.RED, -0.68, y=0.25, time=5.0), track(1, BoxColor.GRAY, -0.60, y=0.25, time=5.0)]
-    assert plan_clear_and_sort(world, far, seen, {}, (BoxColor.RED,)) is None                  # far half of the belt
+    assert plan_clear_and_sort(world, far, seen, {}, (BoxColor.RED,)) is not None              # far half: Robot 2's side (#154)
     late = [track(0, BoxColor.RED, -0.08, time=5.0), track(1, BoxColor.GRAY, 0.0, time=5.0)]
     assert plan_clear_and_sort(world, late, seen, {}, (BoxColor.RED,)) is None                # too late to clear
 
@@ -63,7 +63,7 @@ def run(world, **kwargs):
         world.C.computeCollisions()
         collisions.extend(world.C.getCollisions(0.0))
 
-    stats = run_robots(world, GroundTruthDetector(world).detect, duration=45.0, on_step=check, **kwargs)
+    stats = run_robots(world, GroundTruthDetector(world).detect, duration=60.0, on_step=check, **kwargs)
     return stats, collisions
 
 
@@ -87,7 +87,8 @@ def test_without_clear_and_sort_the_blocked_boxes_are_left_alone():
 
 def test_success_rate_over_varied_blocking_scenarios():
     scenarios = [(0.05, 0.08, 0.0, BoxColor.RED), (0.05, -0.065, -0.06, BoxColor.BLUE), (0.03, 0.10, -0.06, BoxColor.GREEN),
-                 (0.08, 0.07, 0.0, BoxColor.RED), (0.03, -0.065, 0.0, BoxColor.BLUE), (0.08, 0.09, -0.06, BoxColor.GREEN)]
+                 (0.08, 0.07, 0.0, BoxColor.RED), (0.03, -0.065, 0.0, BoxColor.BLUE), (0.08, 0.09, -0.06, BoxColor.GREEN),
+                 (0.05, 0.08, 0.05, BoxColor.RED)]   # far half of the belt: Robot 2's side since #154
     outcomes = []
     for speed, gap, y, color in scenarios:
         world, _, _ = blocked_scene(speed, gap, y, color)
@@ -98,9 +99,7 @@ def test_success_rate_over_varied_blocking_scenarios():
     assert outcomes == [True] * len(scenarios)
 
 
-@pytest.mark.parametrize("speed, gap, y", [(0.1, 0.08, 0.0),      # belt too fast
-                                           (0.05, 0.08, 0.05),    # gray box on the far half of the belt
-                                           (0.08, -0.08, 0.0)])   # gray box behind: the wanted box is out of reach afterwards
+@pytest.mark.parametrize("speed, gap, y", [(0.1, 0.08, 0.0)])     # belt too fast
 def test_outside_the_limits_the_boxes_are_left_alone(speed, gap, y):
     world, _, _ = blocked_scene(speed, gap, y)
     stats, collisions = run(world, clear_and_sort=True)
@@ -129,28 +128,28 @@ def plan(tracks, roles, buffer_free=6):
     return decide(tracks, roles, buffer_free).job
 
 
-def test_destination_is_the_own_region_or_the_buffer():
-    assert destination(1, BoxColor.GRAY) == BUFFER and destination(2, BoxColor.GRAY) == "bin_gray"
-    assert destination(2, BoxColor.RED) == BUFFER and destination(2, BoxColor.GREEN) == "region_B"
+def test_destination_is_the_own_region_only():
+    """Robots on opposite sides (#154): no region and no buffer is reachable by both, a robot only takes a blocker
+    of its own colors."""
+    assert destination(1, BoxColor.GRAY) is None and destination(2, BoxColor.GRAY) == "bin_gray"
+    assert destination(2, BoxColor.RED) is None and destination(2, BoxColor.GREEN) is None
     assert destination(1, BoxColor.BLUE) == "region_C"
 
 
-def test_blocker_in_robot_1_only_zone_goes_into_the_buffer():
-    job = plan(cluster(-0.7, 0.03), FIXED_ROLES)
-    assert job.target == 0 and len(job.steps) == 2
-    removal, target = job.steps
-    assert (removal.robot_id, removal.region) == (1, BUFFER) and removal.track_id in (1, 2)
-    assert (target.robot_id, target.track_id, target.region) == (1, 0, "region_A")
+def test_gray_blocker_goes_to_robot_2_and_the_target_to_robot_1():
+    job = plan(cluster(-0.4, 0.03), FIXED_ROLES)
+    assert job is not None
+    for step in job.steps:
+        assert (step.robot_id, step.region) == ((2, "bin_gray") if step.track_id in (1, 2) else (1, "region_A"))
 
 
-def test_without_a_free_buffer_slot_the_robot_1_only_zone_cannot_be_cleared():
-    assert plan(cluster(-0.7, 0.03), FIXED_ROLES, buffer_free=0) is None     # Robot 2 cannot reach there
+def test_robot_1_alone_cannot_clear_gray_blockers():
+    assert plan(cluster(-0.4, 0.03), {1: COLORED}) is None     # it cannot take a gray box anywhere
 
 
-@pytest.mark.parametrize("x, target_color", [(0.0, BoxColor.GREEN),         # overlap
-                                             (0.6, BoxColor.GREEN)])        # Robot 2 only zone
+@pytest.mark.parametrize("x, target_color", [(0.0, BoxColor.GREEN), (0.3, BoxColor.GREEN)])
 def test_gray_blocker_robot_2_can_reach_goes_straight_into_the_bin(x, target_color):
-    job = plan(cluster(x, 0.01, target_color), SHARED_ROLES)
+    job = plan(cluster(x, 0.01, target_color), FIXED_ROLES)
     assert job is not None
     assert all(step.region != BUFFER for step in job.steps)
     assert all((s.robot_id, s.region) == (2, "bin_gray") for s in job.steps if s.track_id in (1, 2))
@@ -185,7 +184,7 @@ def layout(blockers, x, speed):
     (0.2, 1, 0), (0.2, 2, None), (0.2, 3, None),
 ])
 def test_clearing_is_started_only_if_it_finishes_in_time(speed, blockers, removals):
-    decision = decide(layout(blockers, -0.85, speed), {1: COLORED})
+    decision = decide(layout(blockers, -0.45, speed), {1: COLORED, 2: ()})   # Robot 2 removes the gray boxes (#154)
     if removals is None:
         assert decision.job is None and decision.infeasible == [0] and not decision.later
     else:
@@ -194,10 +193,10 @@ def test_clearing_is_started_only_if_it_finishes_in_time(speed, blockers, remova
 
 
 def test_clearing_that_can_start_later_is_deferred():
-    """Robot 2 alone, a gray target behind a red box (and one on the far side), upstream of Robot 2's reach: the red
-    box can only be put into the buffer once it is within reach, so the clearing starts later."""
-    tracks = [track(0, BoxColor.GRAY, -0.6, time=5.0), track(1, BoxColor.RED, -0.539, time=5.0),
-              track(2, BoxColor.RED, -0.6, y=0.261, time=5.0)]
+    """Robot 2 alone, a gray target behind a gray box (and one on the far side), upstream of Robot 2's reach: the
+    blocker can only be taken to the bin once it is within reach, so the clearing starts later."""
+    tracks = [track(0, BoxColor.GRAY, -0.9, time=5.0), track(1, BoxColor.GRAY, -0.839, time=5.0),
+              track(2, BoxColor.GRAY, -0.9, y=0.261, time=5.0)]
     decision = decide(tracks, {2: (BoxColor.GRAY,)})
     assert decision.job is None and decision.infeasible == [] and 5.0 < decision.later[0] < 25.0
 

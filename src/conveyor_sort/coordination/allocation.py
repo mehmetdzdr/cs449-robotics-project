@@ -10,23 +10,21 @@ LEAD_TIME = 3.0        # time from the decision to the grasp [s]
 MIN_TRACK_AGE = 1.0    # a track must have been followed this long before it is picked (velocity estimate settled) [s]
 MAX_TRACK_GAP = 0.2    # ... and must have been seen this recently [s]
 MAX_TRACK_GAP_BOTOP = 0.7   # ... on the physics backend: BotOp renders a new camera image only every 0.35 to 0.5 s (#94)
-PICK_X = {1: (-1.1, 0.2), 2: (0.4, 1.1)}   # part of the belt (x) where each robot picks [m]; Robot 2 can reach from -0.2, but
-# every box it could pick in the shared area it can also pick later outside of it, without blocking Robot 1
+# Part of the belt (x) where each robot picks [m]. The robots stand on opposite sides of the belt at x = 0 (#154) and
+# both reach x in [-0.6, 0.6] on its centre line: Robot 1 picks upstream, Robot 2 downstream, both in the middle band.
+PICK_X = {1: (-1.1, 0.15), 2: (-0.15, 1.1)}
 # The fingers close along the belt: a neighbour closer than BLOCK_X in front of or behind a box, in the same lane
 # (lateral offset below BLOCK_Y), is hit by them (measured: hit at 0.10 m, free at 0.12 m). Such a box is not picked.
 BLOCK_X, BLOCK_Y = 0.11, 0.06
-# Shared area: the belt section where the arms can meet, region B and the buffer. Each arm plans with the other one
-# static, so two arms working there at the same time collide. Only one robot may work in it at a time.
-SHARED_X = (-0.3, 0.4)
-SHARED_REGIONS = ("region_B", "buffer")
+# Shared area: the space over the belt. The robots stand on opposite sides of it at x = 0 (#154): every approach from
+# home swings over the middle of the belt, and the arms reach over the belt towards each other. Each arm plans with
+# the other one static, so two arms there at the same time collide. Only one arm may be over the belt at a time
+# (`PickPlaceTask.at_belt`: from the start of the approach until the lift); the other one may place on its own side
+# meanwhile. Rules by pick position did not work: with a band around the overlap of the pick zones, or within 0.3 m
+# of the other robot's zone, the hands met over the belt on the way to picks 0.31 m apart. No region is shared.
 
 COLORED = (BoxColor.RED, BoxColor.GREEN, BoxColor.BLUE)
 FIXED_ROLES = {1: COLORED, 2: (BoxColor.GRAY,)}                    # Robot 1 sorts, Robot 2 removes gray boxes
-SHARED_ROLES = {1: COLORED, 2: (BoxColor.GRAY, BoxColor.GREEN)}    # region B is reachable by both: either sorts green
-
-
-def uses_shared_area(pick_x: float, region: str) -> bool:
-    return region in SHARED_REGIONS or SHARED_X[0] < pick_x < SHARED_X[1]
 
 
 def max_track_gap(world: World) -> float:
@@ -54,9 +52,9 @@ def allocate(world: World, tracks: list[Track], first_seen: dict[int, float], bl
     Of all such (robot, box) pairs the most urgent one is served first: the box with the least time left
     before it leaves that robot's part of the belt.
 
-    Priority in the shared area (`uses_shared_area`): a robot working there keeps it until its task ends
-    (`shared_area_busy`); if both free robots want it, the more urgent box wins. The other robot waits: it
-    may only take a box outside the shared area. Refused pairs and waiting robots are recorded in `log`.
+    Priority over the belt (the shared area): one arm at a time (`shared_area_busy`: the other arm is still over
+    the belt, see `PickPlaceTask.at_belt`); if both free robots want a box, the more urgent box wins and the other
+    robot waits. Refused pairs and waiting robots are recorded in `log`.
     """
     pick_time = world.time + LEAD_TIME
     pairs = []
@@ -83,13 +81,12 @@ def allocate(world: World, tracks: list[Track], first_seen: dict[int, float], bl
                and abs(other.predict(pick_time)[1] - position[1]) < BLOCK_Y for other in tracks):
             continue
         if can_pick(world.C, robot_id, position):
-            if uses_shared_area(position[0], region):
-                if shared_area_busy:
-                    refused.add(robot_id)
-                    if log:
-                        log.conflicts.add((robot_id, track.track_id))
-                    continue
-                shared_area_busy = True
+            if shared_area_busy:                           # every pick uses the space over the belt
+                refused.add(robot_id)
+                if log:
+                    log.conflicts.add((robot_id, track.track_id))
+                continue
+            shared_area_busy = True
             assignments[robot_id] = Assignment(robot_id, track.track_id, region, pick_time, position)
             taken.add(track.track_id)
             regions.add(region)

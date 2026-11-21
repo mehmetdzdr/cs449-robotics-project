@@ -22,11 +22,11 @@ def test_target_keeps_its_track_through_2_s_under_the_hand():
     BotOp images) for about 2 s. Its track must be the same before and after."""
     world = World(ConveyorConfig(speed=0.05, max_boxes=0), physics=True)
     try:
-        hover(world, 1, [-0.45, 0.2, 0.79])                    # hand above the belt centre line
-        box = world.conveyor.spawn_box(BoxColor.RED, x=-0.75, y=0.0)
+        hover(world, 1, [-0.05, 0.2, 0.79])                    # hand above the belt centre line, in front of Robot 1
+        box = world.conveyor.spawn_box(BoxColor.RED, x=-0.35, y=0.0)
         detect, tracker = get_detector("hsv", world), Tracker()
         ids, detected_at = set(), []
-        while world.C.getFrame(box).getPosition()[0] < -0.2:  # until it is well past the hand
+        while world.C.getFrame(box).getPosition()[0] < 0.2:   # until it is well past the hand
             world.step()
             detections = detect()                              # [] also for a repeated image (2 new ones per s)
             tracks = tracker.update(detections, world.time)

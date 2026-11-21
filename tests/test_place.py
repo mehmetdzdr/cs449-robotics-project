@@ -9,7 +9,7 @@ from test_pick import world_with_box
 
 
 @pytest.mark.parametrize("robot_id, x, region", [
-    (1, -0.6, "region_A"), (1, -0.2, "region_B"), (1, -0.4, "region_C"), (2, 0.5, "bin_gray"), (2, 0.1, "region_B"),
+    (1, -0.45, "region_A"), (1, -0.2, "region_B"), (1, -0.4, "region_C"), (2, 0.5, "bin_gray"), (2, -0.2, "bin_gray"),
 ])
 def test_full_pick_and_place_of_a_stationary_box(robot_id, x, region):
     world, box = world_with_box(x)

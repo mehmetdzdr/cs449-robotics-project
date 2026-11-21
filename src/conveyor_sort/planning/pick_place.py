@@ -24,6 +24,7 @@ MIN_REPLAN_TIME = 0.5     # ... if at least this much time is left before the gr
 CLEARANCE = 0.02   # physics backend: the arms must stay this far apart while both move [m] (#141)
 MAX_WAIT = 15.0    # ... an arm waits at most this long for the other one to finish its motion [s]
 LOST_TIME = 1.2           # ... a box not seen for this long has left the belt (BotOp: an image every 0.5 s) [s]
+HAND_OVER_BOX = 0.12      # no re-plan while the gripper is this close to the box (xy) [m]
 
 
 @dataclass
@@ -71,7 +72,11 @@ class PickPlaceTask:
         self.result = PickPlaceResult(False, 0.0, None, None)
         self._world, self._track = world, track
         self._picking, self._update, self._replans = False, None, 0   # physics backend: see observe()
+        self._checked_lift: Plan | None = None                       # see _plan_pick
         self.waits = 0     # physics backend: stages that waited for the other arm, or picks given up for it (#141)
+        # the arm is over the belt (or on its way there): from the start until the box is lifted (#154). With a
+        # failed pick or lift it stays True until the task ends (the arm goes home from the belt).
+        self.at_belt = box is None
         self._steps = self._run_physical(world, assignment, track) if world.bot is not None else \
             self._run(world, assignment, track)
 
@@ -100,8 +105,14 @@ class PickPlaceTask:
         world, pick_time = self._world, self.assignment.pick_time
         track = next((t for t in tracks if t.track_id == self._track.track_id), None)
         if track is None or world.time - track.timestamp > LOST_TIME:
-            self._update = "lost"
-        elif (np.linalg.norm(track.predict(pick_time) - self._track.predict(pick_time)) > REPLAN_DISTANCE
+            if pick_time - world.time > MIN_REPLAN_TIME:   # just before the grasp the own hand hides the box (#154:
+                self._update = "lost"                        # seen last 1.3 s before it, given up 0.13 s before it)
+            return
+        gripper = world.C.getFrame(f"{ROBOT_PREFIX[self.assignment.robot_id]}gripper").getPosition()
+        if np.linalg.norm(gripper[:2] - self._track.predict(world.time)[:2]) < HAND_OVER_BOX:
+            return     # the hand partly hides the box: a detection of its visible part only (#154: such detections
+            #            re-planned the grasp beside the box)
+        if (np.linalg.norm(track.predict(pick_time) - self._track.predict(pick_time)) > REPLAN_DISTANCE
               and pick_time - world.time > MIN_REPLAN_TIME):
             self._update, self._track = track, track
 
@@ -124,8 +135,13 @@ class PickPlaceTask:
             result.failed_stage = "grasp"
             yield from run("home", plan_home(C, robot), HOME_TIME)
             return
+        # the arm is exactly where the pick ended: the lift checked from there is used (planned again, KOMO's
+        # random start found no lift in some runs at the edge of the workspace, and the arm held the box at the belt)
+        lift = self._checked_lift        # its planning time is already counted in the pick's
+        lifted = yield from run("lift", Plan(lift.path, lift.feasible, 0.0), LIFT_TIME)
+        self.at_belt = not lifted
         result.success = (
-            (yield from run("lift", plan_lift(C, robot), LIFT_TIME))
+            lifted
             and (yield from run("place", plan_place(C, robot, result.box, assignment.target_region), PLACE_TIME))
             and (release(world, result.box, assignment.target_region) or True)
             and (yield from run("retreat", plan_lift(C, robot, height=0.1), RETREAT_TIME))
@@ -143,6 +159,7 @@ class PickPlaceTask:
             lift = plan_lift(C, robot)
             C.setJointState(q)
             pick = Plan(pick.path, lift.feasible, pick.planning_time + lift.planning_time)
+            self._checked_lift = lift
         return pick
 
     def _run_physical(self, world: World, assignment: Assignment, track: Track) -> Iterator[bool]:
@@ -282,6 +299,7 @@ class PickPlaceTask:
 
         gripper_z, box_z = gripper.getPosition()[2], C.getFrame(box).getPosition()[2]
         lifted = yield from run("lift", lift, LIFT_TIME)
+        self.at_belt = self.at_belt and not lifted
         if lifted:
             yield from wait(SQUEEZE_SETTLE)
             risen = C.getFrame(box).getPosition()[2] - box_z >= gripper.getPosition()[2] - gripper_z - SLIP_TOLERANCE

@@ -16,7 +16,7 @@ from conveyor_sort.sorting import run_robots
 pytestmark = pytest.mark.slow   # physics scenarios in real time: nightly / on demand in CI (#97)
 
 
-@pytest.mark.parametrize("x2, close", [(0.05, True), (0.7, False)])
+@pytest.mark.parametrize("x2, close", [(0.05, True), (0.45, False)])
 def test_clearance_of_a_path_against_the_moving_other_arm(x2, close):
     """Robot 2 starts towards a box at x2; Robot 1's path to a box at -0.05 is checked against that motion."""
     world = World(ConveyorConfig(speed=0.0, max_boxes=0), physics=True)

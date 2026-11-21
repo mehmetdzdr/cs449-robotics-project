@@ -15,12 +15,12 @@ DEFAULT_TARGET = {
 }
 
 # which robots can place a box there (robot ids as in interfaces.Assignment)
-REGION_ROBOTS = {"region_A": (1,), "region_B": (1, 2), "region_C": (1,), "bin_gray": (2,)}
+REGION_ROBOTS = {"region_A": (1,), "region_B": (1,), "region_C": (1,), "bin_gray": (2,)}   # opposite sides (#154)
 
 # Physics backend, clearing (#101): a blocker that the robot removing it cannot take to its own region is put here,
 # and later taken on by a robot that can. Not a target region (no color goes there, no command names it).
 BUFFER = "buffer"
-BUFFER_ROBOTS = (1, 2)
+BUFFER_ROBOTS = ()   # not used with the robots on opposite sides (#154, see assets/scene.g)
 
 
 # Physics backend: a region holds up to len(SLOTS) boxes, one per slot (offsets from the region centre [m]).
@@ -37,10 +37,14 @@ def slot_position(C: ry.Config, region: str, slot: int) -> np.ndarray:
 
 
 def free_slots(C: ry.Config, region: str, boxes) -> list[int]:
-    """The slots of `region` that none of `boxes` occupies, in order."""
+    """The slots of `region` that none of `boxes` occupies, farthest from the belt centre line first: the arm comes
+    from the belt side and must not reach over boxes already placed (#154: Robot 2's bin is on the other side of the
+    belt; filled near to far, the fourth box was released 18 cm from its slot and tipped over)."""
     occupied = [C.getFrame(b).getPosition()[:2] for b in boxes]
-    return [slot for slot in range(len(SLOTS))
+    belt_y = C.getFrame("belt").getPosition()[1]
+    free = [slot for slot in range(len(SLOTS))
             if not any(np.all(np.abs(p - slot_position(C, region, slot)) < SLOT_TOLERANCE) for p in occupied)]
+    return sorted(free, key=lambda slot: -abs(slot_position(C, region, slot)[1] - belt_y))
 
 
 def free_slot(C: ry.Config, region: str, boxes) -> int | None:

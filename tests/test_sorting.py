@@ -19,7 +19,7 @@ def sparse_world(seed=0):
 
 def test_single_robot_sorts_every_box_with_ground_truth():
     world = sparse_world()
-    stats = run_single_robot(world, GroundTruthDetector(world).detect, duration=60.0)
+    stats = run_single_robot(world, GroundTruthDetector(world).detect, duration=66.0)  # 0.4 m more belt to the robot
     assert len(stats.events) == 5                      # boxes entered at t = 0, 12, 24, 36, 48 s
     assert stats.sorted_correctly == 5
     assert stats.failed == 0 and stats.missed == 0
@@ -29,7 +29,7 @@ def test_single_robot_sorts_every_box_with_ground_truth():
 def test_single_robot_sorts_with_hsv_vision():
     world = sparse_world(seed=1)
     camera, detector = Camera(world.C), HsvDetector(world.conveyor.geometry)
-    stats = run_single_robot(world, lambda: detector.detect(camera.capture(world.time)), duration=13.0)   # one box: rendering every step is slow
+    stats = run_single_robot(world, lambda: detector.detect(camera.capture(world.time)), duration=18.0)   # one box: rendering every step is slow
     assert len(stats.events) == 1
     assert stats.sorted_correctly == 1
     assert stats.failed == 0 and stats.missed == 0
@@ -57,10 +57,10 @@ def test_two_robots_with_fixed_roles_work_at_the_same_time():
 
     stats = run_robots(world, GroundTruthDetector(world).detect, duration=60.0, on_step=check)
     by_robot = {r: [e for e in stats.events if e.robot_id == r] for r in (1, 2)}
-    assert len(by_robot[1]) == 5 and len(by_robot[2]) == 2
+    assert len(by_robot[1]) == 5 and len(by_robot[2]) == 3          # Robot 2 now reaches all three gray boxes (#154)
     assert all(e.color != BoxColor.GRAY and e.region != "bin_gray" for e in by_robot[1])
     assert all(e.color == BoxColor.GRAY and e.region == "bin_gray" for e in by_robot[2])
-    assert stats.sorted_correctly == 7 and stats.failed == 0 and stats.missed == 0
+    assert stats.sorted_correctly == 8 and stats.failed == 0 and stats.missed == 0
     assert both_moving[0] * world.dt > 10.0                              # the arms really move simultaneously
     assert collisions == []
 

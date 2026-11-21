@@ -5,8 +5,7 @@ from typing import Callable
 
 import numpy as np
 
-from conveyor_sort.coordination.allocation import (COLORED, FIXED_ROLES, LEAD_TIME, CoordinationLog, allocate,
-                                                    uses_shared_area)
+from conveyor_sort.coordination.allocation import COLORED, FIXED_ROLES, LEAD_TIME, CoordinationLog, allocate
 from conveyor_sort.coordination.clear_and_sort import plan_clear_and_sort, plan_clearing_job
 from conveyor_sort.interfaces import Assignment, BoxColor, Detection, Track
 from conveyor_sort.physics.contacts import arm_proximity
@@ -92,7 +91,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
                on_step: Callable[[World], None] | None = None, clear_and_sort: bool = False) -> SortingStats:
     """Every robot in `roles` (robot_id -> colors) sorts boxes of its colors into their default regions for
     `duration` seconds of simulation time. The robots work at the same time; `allocate` decides who takes
-    which box (with `SHARED_ROLES` green boxes go to whichever robot is free). A box with a neighbour right in
+    which box. A box with a neighbour right in
     front of or behind it is left alone, except with `clear_and_sort`. Kinematic backend: if the neighbour is gray,
     Robot 2 removes it first and Robot 1 then sorts the box (needs both robots). Physics backend (#101): a clearing
     job (`plan_clearing_job`, planned while every robot is free) removes the blockers one by one, each by whichever
@@ -195,8 +194,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         attempts[assignment.track_id] += 1
 
     def shared_area_busy() -> bool:
-        return any(uses_shared_area(task.assignment.pick_position[0], task.assignment.target_region)
-                   for task, _ in tasks.values())
+        return any(task.at_belt for task, _ in tasks.values())      # one arm over the belt at a time (#154)
 
     def run_clearing(free: list[int]) -> list[int]:
         """Physics backend: plan a clearing job (only while every robot is free) or start its next step once the
@@ -226,7 +224,7 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
                 stats.clear_and_sort.append(False)      # track lost, or out of reach by now (time limits: #102)
                 clearing.clear()
                 return free
-            if not (uses_shared_area(track.predict(pick_time)[0], step.region) and shared_area_busy()):
+            if not shared_area_busy():
                 start(Assignment(step.robot_id, step.track_id, step.region, pick_time, track.predict(pick_time)),
                       across_belt=step.across_belt)
                 clearing["next"] = k + 1

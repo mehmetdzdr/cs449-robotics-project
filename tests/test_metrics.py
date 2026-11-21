@@ -82,7 +82,7 @@ def test_three_manipulation_configurations_on_the_same_stream():
     records = {mode: run_experiment(ExperimentConfig("modes", 0.1, 0.45, 10, seed=0, mode=mode))
                for mode in ("single", "fixed", "coordinated")}
     assert records["single"]["sorted_correctly"] == 5 and records["single"]["missed"] == 5      # the gray boxes leave
-    assert records["fixed"]["sorted_correctly"] == 8 and records["fixed"]["missed"] == 2
+    assert records["fixed"]["sorted_correctly"] == 9 and records["fixed"]["missed"] == 1     # robots facing each other (#154)
     assert records["coordinated"]["sorted_correctly"] >= 8
     for record in records.values():
         assert record["grasp_success_rate"] == 1.0 and record["sorting_accuracy"] == 1.0
@@ -96,7 +96,7 @@ def test_three_manipulation_configurations_on_the_same_stream():
 def test_clear_and_sort_is_logged_for_a_stream_with_blocked_pairs():
     record = run_experiment(ExperimentConfig("pairs", 0.05, 0.6, 10, seed=0, mode="coordinated", blocked_pairs=0.5))
     assert record["blocked_pairs_spawned"] == 3
-    assert record["clear_and_sort_attempts"] == 1 and record["clear_and_sort_success_rate"] == 1.0
+    assert record["clear_and_sort_attempts"] == 3 and record["clear_and_sort_success_rate"] == 1.0   # every pair (#154)
     fixed = run_experiment(ExperimentConfig("pairs", 0.05, 0.6, 10, seed=0, mode="fixed", blocked_pairs=0.5))
     assert fixed["clear_and_sort_attempts"] == 0 and fixed["sorted_correctly"] < record["sorted_correctly"]
 

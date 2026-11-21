@@ -42,7 +42,7 @@ def gripper_error(world, robot_id, q_planned) -> float:
     return float(np.linalg.norm(actual - planned_gripper(world, robot_id, q_planned)))
 
 
-@pytest.mark.parametrize("robot_id, x, y", [(1, -0.7, 0.0), (1, -0.3, 0.1), (2, 0.2, -0.1), (2, 0.6, 0.05)])
+@pytest.mark.parametrize("robot_id, x, y", [(1, -0.5, 0.0), (1, -0.3, 0.1), (2, 0.2, -0.1), (2, 0.45, 0.05)])
 def test_tracking_error_at_the_end_of_a_pick_path(physics_world, robot_id, x, y):
     world, (box,) = physics_world([(x, y)])
     pick = plan_pick(world.C, robot_id, box)
@@ -59,7 +59,7 @@ def test_tracking_error_at_the_end_of_a_pick_path(physics_world, robot_id, x, y)
 
 
 def test_both_arms_at_once_with_different_durations(physics_world):
-    world, (box1, box2) = physics_world([(-0.5, 0.0), (0.6, 0.0)])
+    world, (box1, box2) = physics_world([(-0.3, 0.0), (0.3, 0.0)])
     pick1, pick2 = plan_pick(world.C, 1, box1), plan_pick(world.C, 2, box2)
     assert pick1.feasible and pick2.feasible
     start = world.time
@@ -101,11 +101,12 @@ def robot1_tracking_error(world, box1, box2, disturb: bool) -> float:
 
 
 def test_new_path_for_one_arm_does_not_disturb_the_other(physics_world):
-    world, (box1, box2) = physics_world([(-0.5, 0.0), (0.6, 0.0)])
+    world, (box1, box2) = physics_world([(-0.3, 0.0), (0.3, 0.0)])
     alone = robot1_tracking_error(world, box1, box2, disturb=False)
-    world2, (box1, box2) = physics_world([(-0.5, 0.0), (0.6, 0.0)])
+    world2, (box1, box2) = physics_world([(-0.3, 0.0), (0.3, 0.0)])
     disturbed = robot1_tracking_error(world2, box1, box2, disturb=True)
     print(f"robot 1 tracking error {alone * 1000:.1f} mrad alone, {disturbed * 1000:.1f} mrad while robot 2 is re-planned")
-    # measured: 8 to 18 mrad alone, 28 mrad disturbed (a transient when the merged spline overwrites the old one;
-    # known limitation, see physics/arms.py); this guards against it getting worse
-    assert alone < 0.025 and disturbed < 0.04
+    # measured: 18 to 24 mrad alone, 33 to 34 mrad disturbed with the robots facing each other (#154; before: 8 to 18
+    # and 28), a transient when the merged spline overwrites the old one (known limitation, see physics/arms.py);
+    # this guards against it getting worse
+    assert alone < 0.03 and disturbed < 0.045

@@ -18,8 +18,8 @@ def test_home_pose_is_collision_free_and_retracted():
     C = load_scene()
     C.computeCollisions()
     assert C.getCollisions(0.0) == []
-    for prefix in ROBOT_PREFIX.values():
-        assert C.getFrame(f"{prefix}gripper").getPosition()[1] < 0.0
+    for prefix in ROBOT_PREFIX.values():   # each gripper on its own robot's side, clear of the belt (y in [0.05, 0.35])
+        assert abs(C.getFrame(f"{prefix}gripper").getPosition()[1] - 0.2) > 0.2
 
 
 def test_top_camera_sees_whole_table():
