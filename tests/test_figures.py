@@ -66,3 +66,22 @@ def test_scenario_matrix_table(tmp_path):
     assert "Scenario matrix on physics: observed outcome per cell (2 of 3 as expected, 0 arm contacts)" in tables
     assert "| free | centre | sorted | missed | sorted / sorted or missed |" in tables
     assert "| front_side | near edge | failed **(unexpected)** | - | cleared |" in tables
+
+
+def test_perception_scenarios_tables(tmp_path):
+    pytest.importorskip("matplotlib")
+    results, out = tmp_path / "results", tmp_path / "figures"
+    results.mkdir()
+    (results / "perception_scenarios.csv").write_text(
+        "case,layout,lateral,spacing,cover,detector,boxes,recall,wrong_color,precision,error_mean_mm,error_max_mm,mask_iou,time_ms,visible,found\n"
+        "layout,free,centre,touching,,hsv,3,1.0,0.0,1.0,1.5,2.0,nan,14.0,,\n"
+        "layout,free,near_edge,touching,,hsv,3,0.6667,0.0,1.0,2.5,3.0,nan,14.0,,\n"
+        "cover,free,,,0.15/0.03,hsv,,,,,2.0,,,,0.41,True\n"
+        "cover,free,,,0.15/0.03,yolo,,,,,,,,,0.41,False\n"
+    )
+    run("make_figures.py", "--results", results, "--out", out)
+    tables = (out / "tables.md").read_text()
+    assert "Perception on BotOp images: dense and occluded layouts" in tables
+    assert "| free | touching | hsv | 6 | 83.3% | 0.0% | 2.0 |" in tables
+    assert "Perception on BotOp images: target partly covered by an arm" in tables
+    assert "| 0.15/0.03 | 41% | found | - |" in tables

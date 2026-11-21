@@ -2,7 +2,7 @@
 
     python evaluation/make_figures.py            (needs matplotlib: pip install -e ".[eval]")
 
-Reads results/{manipulation,manipulation_physics,perception,prediction,prediction_physics,command,command_fast,
+Reads results/{manipulation,manipulation_physics,perception,perception_scenarios,prediction,prediction_physics,command,command_fast,
 command_physics,scenario_matrix}.csv, written by the benchmark scripts
 in this directory, and writes evaluation/figures/*.png and evaluation/figures/tables.md. A missing CSV is skipped.
 """
@@ -156,6 +156,12 @@ if runs and physical:
           "streams per configuration, ground-truth detections)", header, [[name] + cells for name, cells in rows.items()])
 
 # ---------------------------------------------------------------- perception: HSV vs YOLO vs SAM
+def partly_hidden(row: dict) -> str:
+    """Boxes a third to two thirds visible (#110): found / counted; '-' for none or for an older CSV."""
+    n = int(float(row.get("partly_hidden") or 0))
+    return f"{round(float(row['partly_hidden_recall']) * n)} of {n}" if n else "-"
+
+
 rows_csv = read("perception.csv")
 if rows_csv:
     conditions = list(dict.fromkeys(r["condition"] for r in rows_csv))
@@ -180,12 +186,58 @@ if rows_csv:
     plt.close(figure)
     print(f"wrote {args.out / 'perception.png'}")
     table("Perception: detectors on the same scenes", ["condition", "detector", "boxes", "recall", "wrong color", "precision",
-                                                       "error mean / max [mm]", "mask IoU", "time [ms]"],
+                                                       "error mean / max [mm]", "mask IoU", "partly hidden: found",
+                                                       "time [ms]"],
           [[c if d == detectors[0] else "", d, cell[c, d]["boxes"], f"{float(cell[c, d]['recall']):.3f}",
             f"{float(cell[c, d]['wrong_color']):.3f}", f"{float(cell[c, d]['precision']):.3f}",
             f"{float(cell[c, d]['error_mean_mm']):.1f} / {float(cell[c, d]['error_max_mm']):.1f}",
-            "-" if cell[c, d]["mask_iou"] == "nan" else f"{float(cell[c, d]['mask_iou']):.3f}", f"{float(cell[c, d]['time_ms']):.0f}"]
+            "-" if cell[c, d]["mask_iou"] == "nan" else f"{float(cell[c, d]['mask_iou']):.3f}", partly_hidden(cell[c, d]),
+            f"{float(cell[c, d]['time_ms']):.0f}"]
            for c in conditions for d in detectors])
+
+# ---------------------------------------------------------------- perception: dense and occluded BotOp scenarios (#103, #110)
+rows_csv = read("perception_scenarios.csv")
+if rows_csv:
+    layout_rows = [r for r in rows_csv if r["case"] == "layout"]
+    if layout_rows:
+        groups = defaultdict(list)
+        for r in layout_rows:
+            groups[(r["layout"], r["spacing"], r["detector"])].append(r)
+        summary_rows = []
+        for (layout, spacing, detector), rs in groups.items():
+            boxes = sum(int(float(r["boxes"])) for r in rs)
+            recall = sum(float(r["recall"]) * float(r["boxes"]) for r in rs) / boxes if boxes else np.nan
+            wrong = sum(float(r["wrong_color"]) * float(r["boxes"]) for r in rs) / boxes if boxes else np.nan
+            errs = [float(r["error_mean_mm"]) for r in rs if r.get("error_mean_mm", "") not in ("", "nan")]
+            err_str = f"{np.mean(errs):.1f}" if errs else "-"
+            summary_rows.append([layout, spacing, detector, str(boxes), f"{recall:.1%}" if boxes else "-",
+                                 f"{wrong:.1%}" if boxes else "-", err_str])
+        table("Perception on BotOp images: dense and occluded layouts",
+              ["layout", "spacing", "detector", "boxes", "recall", "wrong color", "error mean [mm]"], summary_rows)
+
+    cover_rows = [r for r in rows_csv if r["case"] == "cover"]
+    if cover_rows:
+        covers = list(dict.fromkeys(r["cover"] for r in cover_rows))
+        detectors = list(dict.fromkeys(r["detector"] for r in cover_rows))
+        by_cover = {(r["cover"], r["detector"]): r for r in cover_rows}
+        cover_table = []
+        for cover in covers:
+            visible = next((by_cover[cover, d]["visible"] for d in detectors if (cover, d) in by_cover), "")
+            vis_str = f"{float(visible):.0%}" if visible not in ("", "nan") else "-"
+            cells = []
+            for d in detectors:
+                r = by_cover.get((cover, d))
+                if not r:
+                    cells.append("-")
+                elif r["found"] == "True":
+                    cells.append("found")
+                elif r["wrong_color"] == "True":
+                    cells.append("wrong color")
+                else:
+                    cells.append("-")
+            cover_table.append([cover, vis_str] + cells)
+        table("Perception on BotOp images: target partly covered by an arm",
+              ["cover (height / offset [m])", "visible"] + detectors, cover_table)
 
 # ---------------------------------------------------------------- prediction: constant-velocity fit vs Kalman
 rows_csv = read("prediction.csv")

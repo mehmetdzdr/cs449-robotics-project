@@ -21,7 +21,8 @@ parser.add_argument("--out", type=Path, default=Path("results/perception.csv"))
 args = parser.parse_args()
 
 CONDITIONS = {"random": ("random", 1.0), "dense (touching boxes)": ("dense", 1.0),
-              "dark (x 0.6)": ("random", 0.6), "bright (x 1.4)": ("random", 1.4)}
+              "dark (x 0.6)": ("random", 0.6), "bright (x 1.4)": ("random", 1.4),
+              "occluded (an arm over a box)": ("occluded", 1.0)}
 rows = []
 detectors = None
 for condition, (arrangement, brightness) in CONDITIONS.items():
@@ -41,7 +42,8 @@ for condition, (arrangement, brightness) in CONDITIONS.items():
         rows.append(row)
         print(f"{condition:24s} {name:17s} boxes {row['boxes']:3d}  recall {row['recall']:.3f}  wrong color {row['wrong_color']:.3f}  "
               f"precision {row['precision']:.3f}  error {row['error_mean_mm']:.1f} / {row['error_max_mm']:.1f} mm  "
-              f"mask IoU {row['mask_iou']:.3f}  {row['time_ms']:.0f} ms", flush=True)
+              f"mask IoU {row['mask_iou']:.3f}  partly hidden {row['partly_hidden']} found {row['partly_hidden_recall']:.2f}  "
+              f"{row['time_ms']:.0f} ms", flush=True)
 
 args.out.parent.mkdir(parents=True, exist_ok=True)
 with args.out.open("w", newline="") as f:
