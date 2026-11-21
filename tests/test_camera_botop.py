@@ -86,7 +86,9 @@ def test_image_timestamps_on_the_moving_belt(physics_world, speed):
     errors = np.array(errors)
     print(f"{speed} m/s: {new_images} new images in {world.time - t0:.1f} s, error at the image time {errors.mean() * 1000:.1f} mm mean, "
           f"{errors.max() * 1000:.1f} mm max")
-    assert 0.3 <= (world.time - t0) / new_images <= 0.6     # a new image every 0.35 to 0.5 s; repeats are not reported
+    # a new image every 0.35 to 0.5 s here, 0.64 s on the CI runner (software rendering on 2 cores); repeats are not
+    # reported (they would bring the interval down to the step, 0.05 s)
+    assert 0.3 <= (world.time - t0) / new_images <= 0.8
     # the image time is only estimated (see Camera)
     assert errors.mean() < 0.004 and errors.max() < 0.015
 
