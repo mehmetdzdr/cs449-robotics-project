@@ -254,6 +254,17 @@ With 2 mm detection noise the window fit stays at 6.5 to 6.8 mm however long the
 Kalman filter is equal after 1 s of tracking (6.9 mm) and reaches 4.1 mm after 2 s and 4.0 mm after 5 s.
 With 5 mm noise: 16.3 to 16.9 mm against 17.2, 10.3 and 10.0 mm.
 
+On the physical belt (0.1 m/s, 60 s of BotOp simulation, both predictors on the same recording):
+
+```bash
+python evaluation/benchmark_prediction_physics.py     # results/prediction_physics.csv
+```
+
+The simulation steps are irregular (0.05 to 0.06 s on average, up to 0.58 s). With ground-truth detections both
+predictors are exact (at most 0.01 mm). With the HSV detector on BotOp's images the window fit stays at 1.7 to
+1.9 mm from 0.5 to 3 s ahead, while the Kalman filter grows from 2.1 to 3.7 mm: on the physical belt the window
+fit is the better predictor, unlike in the synthetic benchmark.
+
 ### Figures and tables
 
 ```bash
@@ -267,7 +278,8 @@ Regenerates everything in `evaluation/figures/` from the logged results: the plo
 release [results-2026-11-21](https://github.com/mehmetdzdr/cs449-robotics-project/releases/tag/results-2026-11-21):
 `yolo_boxes.pt` (the fine-tuned YOLO weights, into `weights/`) and the benchmark CSVs (into `results/`), with
 `SOURCES.md` naming the script and the PR behind each file. From a fresh clone, `fetch_results.py` followed by
-`make_figures.py` gives the committed tables and figures byte for byte.
+`make_figures.py` gives the committed `tables.md` byte for byte and the same figures pixel for pixel (the PNG bytes
+depend on the matplotlib version).
 
 ![share of boxes sorted correctly](evaluation/figures/manipulation_sorted.png)
 
