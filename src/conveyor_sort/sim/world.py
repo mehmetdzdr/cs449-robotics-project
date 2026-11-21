@@ -20,9 +20,13 @@ from conveyor_sort.sim.scene import load_scene
 
 class World:
     def __init__(self, conveyor_config: ConveyorConfig | None = None, dt: float = 0.05,
-                 physics: bool = False, hyper_speed: float = 1.0, friction: float | None = None):
+                 physics: bool = False, hyper_speed: float = 1.0, friction: float | None = None, covers=None):
         self.C = load_scene()
-        self.conveyor = Conveyor(self.C, conveyor_config, physics=physics)
+        if covers is None:
+            self.conveyor = Conveyor(self.C, conveyor_config, physics=physics)
+        else:                       # covered boxes mode (#177, sim/covers.py): a CoverConfig, off by default
+            from conveyor_sort.sim.covers import CoveredConveyor
+            self.conveyor = CoveredConveyor(self.C, conveyor_config, covers, physics=physics)
         self.dt = dt
         self.time = 0.0   # simulation time [s]; use this for Detection / Track timestamps
         self.bot: ry.BotOp | None = None

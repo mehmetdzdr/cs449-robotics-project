@@ -88,7 +88,8 @@ def collect_if_full(world: World, region: str) -> bool:
 
 def run_robots(world: World, detect: Callable[[], list[Detection]], duration: float,
                roles: dict[int, tuple[BoxColor, ...]] = FIXED_ROLES,
-               on_step: Callable[[World], None] | None = None, clear_and_sort: bool = False) -> SortingStats:
+               on_step: Callable[[World], None] | None = None, clear_and_sort: bool = False,
+               covers=None) -> SortingStats:
     """Every robot in `roles` (robot_id -> colors) sorts boxes of its colors into their default regions for
     `duration` seconds of simulation time. The robots work at the same time; `allocate` decides who takes
     which box. A box with a neighbour right in
@@ -105,6 +106,9 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
     if it is back on the belt and still reachable, up to MAX_ATTEMPTS attempts. `SortingStats.failures` counts
     the failures per stage, `SortingStats.drops` where slipped or dropped boxes came to rest. Physics backend:
     tasks still running at the end are finished (at most FINISH_TIMEOUT more), so no arm keeps a box.
+
+    `covers` (#177, opt-in, a `coordination.covers.Uncovering`; World(..., covers=...)): Robot 2 lifts the covers off
+    covered boxes, Robot 1 is given the box under it; its outcomes in `covers.stats`. None: no change.
     """
     if world.bot is None:
         raise ValueError("run_robots needs the physics backend (World(..., physics=True)), see #113")
@@ -141,6 +145,9 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
 
     def finish(robot_id: int) -> None:
         task, track = tasks.pop(robot_id)
+        if covers is not None and covers.finished(task):   # a cover task (#177)
+            stats.arm_waits += task.waits
+            return
         result, region = task.result, task.assignment.target_region
         stats.arm_waits += task.waits
         if task.box is not None and result.failed_stage in ("pick", "full"):   # buffer pick, the arm has not moved:
@@ -244,6 +251,11 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
             free = [robot_id for robot_id in roles if robot_id not in tasks]
             if any(task.box is not None for task, _ in tasks.values()):   # a box is taken from the buffer: the
                 free = []                                                  # other arm waits (see empty_buffer)
+            if covers is not None:   # covered boxes (#177): a cover task, or the uncovered box for Robot 1
+                free, uncovered = covers.start(free, tasks, shared_area_busy(), tracks, first_seen)
+                for assignment in uncovered:
+                    blocked[assignment.track_id] = float("inf")
+                    start(assignment)
             if clear_and_sort:
                 free = run_clearing(free)
             busy_regions = {task.assignment.target_region for task, _ in tasks.values()}
@@ -266,6 +278,8 @@ def run_robots(world: World, detect: Callable[[], list[Detection]], duration: fl
         stats.min_arm_distance = min(stats.min_arm_distance, distance)
         stats.arm_contacts += [(world.time, a, b) for a, b, _ in contacts]
         tracks[:] = tracker.update(detect(), world.time)
+        if covers is not None:
+            covers.update()
         for task, _ in tasks.values():     # physics: a box displaced during the approach is aimed at again (#104)
             task.observe(tracks)
         truth = [world.C.getFrame(b).getPosition() for b in world.conveyor.on_belt()]   # evaluation only
