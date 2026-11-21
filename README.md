@@ -178,11 +178,16 @@ With 5 mm noise: 16.3 to 16.9 mm against 17.2, 10.3 and 10.0 mm.
 
 ```bash
 pip install -e ".[eval]"
-python evaluation/make_figures.py     # after the benchmark_*.py scripts have written results/*.csv
+python scripts/fetch_results.py       # the YOLO weights and the raw results of the release (or run the benchmark_*.py scripts)
+python evaluation/make_figures.py
 ```
 
 Regenerates everything in `evaluation/figures/` from the logged results: the plots shown here and
-[`tables.md`](evaluation/figures/tables.md) with all result tables.
+[`tables.md`](evaluation/figures/tables.md) with all result tables. The committed figures and tables come from the
+release [results-2026-11-21](https://github.com/mehmetdzdr/cs449-robotics-project/releases/tag/results-2026-11-21):
+`yolo_boxes.pt` (the fine-tuned YOLO weights, into `weights/`) and the benchmark CSVs (into `results/`), with
+`SOURCES.md` naming the script and the PR behind each file. From a fresh clone, `fetch_results.py` followed by
+`make_figures.py` gives the committed tables and figures byte for byte.
 
 ![share of boxes sorted correctly](evaluation/figures/manipulation_sorted.png)
 
