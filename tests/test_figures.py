@@ -30,7 +30,7 @@ def test_figures_and_tables_from_logged_results(tmp_path):
         config = ExperimentConfig(mode, 0.1, 0.6, 4, seed=0, mode=mode)
         record = asdict(config) | {"duration": 60.0} | summarize(stats, 4, 60.0)
         record["color_weights"] = json.dumps(config.color_weights)           # one CSV cell, as run_experiment writes it
-        append_csv(results / "manipulation.csv", record)
+        append_csv(results / "manipulation_physics.csv", record)
     run("benchmark_prediction.py", "--csv", results / "prediction.csv", "--trials", 5)
     assert prediction_errors("cv", 0.0, [1.0], trials=2).max() < 1e-6
 

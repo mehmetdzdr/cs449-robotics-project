@@ -2,8 +2,8 @@
 
     python evaluation/make_figures.py            (needs matplotlib: pip install -e ".[eval]")
 
-Reads results/{manipulation,manipulation_physics,perception,perception_scenarios,prediction,prediction_physics,
-command,command_fast,command_physics,scenario_matrix,clearing}.csv, written by the benchmark scripts
+Reads results/{manipulation_physics,perception,perception_scenarios,prediction,prediction_physics,command_physics,
+scenario_matrix,clearing}.csv, written by the benchmark scripts (or fetched: scripts/fetch_results.py)
 in this directory, and writes evaluation/figures/*.png and evaluation/figures/tables.md. A missing CSV is skipped.
 """
 import argparse
@@ -55,8 +55,8 @@ def share(runs: list[dict], key: str) -> float:
     return sum(float(r[key]) for r in runs) / sum(float(r["boxes"]) for r in runs)
 
 
-# ---------------------------------------------------------------- manipulation: three configurations
-runs = read("manipulation.csv")
+# ---------------------------------------------------------------- manipulation: three configurations (physics, #107)
+runs = read("manipulation_physics.csv")
 if runs:
     plain = [r for r in runs if float(r["blocked_pairs"]) == 0]
     paired = [r for r in runs if float(r["blocked_pairs"]) > 0]
@@ -88,7 +88,8 @@ if runs:
     axes[0].set_ylim(0, 1)
     axes[0].legend(fontsize=8)
     save(figure, "manipulation_sorted.png")
-    table(f"Manipulation: share of boxes sorted correctly ({len(plain) // 3} streams per configuration)", ["streams"] + modes, rows)
+    table(f"Manipulation on physics: share of boxes sorted correctly ({len(plain) // 3} streams per configuration)",
+          ["streams"] + modes, rows)
 
     def mean(mode_runs: list[dict], key: str) -> float:
         return float(np.nanmean([float(r[key]) for r in mode_runs]))
@@ -103,8 +104,12 @@ if runs:
                ("planning time, worst run [s]", lambda rs: f"{max(float(r['planning_time_max']) for r in rs):.2f}"),
                ("completion time, mean [s]", lambda rs: f"{mean(rs, 'completion_time'):.0f}"),
                ("shared-area conflicts per run", lambda rs: f"{mean(rs, 'conflicts'):.2f}"),
-               ("waiting time per run [s]", lambda rs: f"{mean(rs, 'waiting_time'):.2f}")]
-    table("Manipulation: all metrics per configuration", ["metric"] + modes,
+               ("waiting time per run [s]", lambda rs: f"{mean(rs, 'waiting_time'):.2f}"),
+               ("grasp failures / slips / drops / other", lambda rs: " / ".join(
+                   str(int(sum(float(r[k]) for r in rs))) for k in ("grasp_failures", "slips", "drops", "other_failures"))),
+               ("arm contacts", lambda rs: str(int(sum(float(r["arm_contacts"]) for r in rs)))),
+               ("closest arm approach [cm]", lambda rs: f"{100 * min(float(r['min_arm_distance']) for r in rs):.1f}")]
+    table("Manipulation on physics: all metrics per configuration (ground-truth detections)", ["metric"] + modes,
           [[name] + [value(by_mode[m]) for m in modes] for name, value in metrics])
     if paired:
         rows = []
@@ -115,45 +120,8 @@ if runs:
                             for r in rs if int(r["clear_and_sort_attempts"]))
             rows.append([mode, f"{share(rs, 'sorted_correctly'):.1%}", str(sum(int(r["blocked_pairs_spawned"]) for r in rs)),
                          str(attempts), f"{successes / attempts:.0%}" if attempts else "-"])
-        table(f"Manipulation: streams with blocked pairs ({len(paired) // 3} streams per configuration)",
+        table(f"Manipulation on physics: streams with blocked pairs ({len(paired) // 3} streams per configuration)",
               ["configuration", "sorted correctly", "blocked pairs", "clear-and-sort attempts", "success rate"], rows)
-
-# ---------------------------------------------------------------- manipulation: kinematic vs physics (#107)
-physical = read("manipulation_physics.csv")
-if runs and physical:
-    def numbers(rs: list[dict], key: str) -> list[float]:
-        return [float(r[key]) for r in rs if r.get(key, "") not in ("", "nan")]
-
-    def column(rs: list[dict]) -> dict[str, str]:
-        total = sum(float(r["boxes"]) for r in rs)
-        values = {"sorted correctly": f"{share(rs, 'sorted_correctly'):.1%}", "left the belt": f"{share(rs, 'missed'):.1%}",
-                  "grasp success rate": f"{np.mean(numbers(rs, 'grasp_success_rate')):.2f}",
-                  "throughput [boxes/min]": f"{np.mean(numbers(rs, 'throughput')):.2f}",
-                  "planning time per pick-and-place, mean [s]": f"{np.mean(numbers(rs, 'planning_time_mean')):.2f}",
-                  "completion time, mean [s]": f"{np.mean(numbers(rs, 'completion_time')):.0f}"}
-        if "slips" in rs[0]:   # physics runs only
-            failures = {k: int(sum(numbers(rs, k))) for k in ("grasp_failures", "slips", "drops", "other_failures")}
-            values |= {"grasp failures / slips / drops / other": "{grasp_failures} / {slips} / {drops} / {other_failures}".format(**failures),
-                       "failed attempts per 100 boxes": f"{100 * sum(failures.values()) / total:.1f}",
-                       "arm contacts": str(int(sum(numbers(rs, "arm_contacts")))),
-                       "closest arm approach [cm]": f"{100 * min(numbers(rs, 'min_arm_distance')):.1f}"}
-        return values
-
-    rows, header = defaultdict(list), ["metric"]
-    for mode in MODE_COLORS:
-        for backend, rs in (("kinematic", runs), ("physics", physical)):
-            selected = [r for r in rs if r["mode"] == mode and float(r["blocked_pairs"]) == 0]
-            if not selected:
-                continue
-            values = column(selected)
-            header.append(f"{mode}, {backend}")
-            for name in ("sorted correctly", "left the belt", "grasp success rate", "throughput [boxes/min]",
-                         "planning time per pick-and-place, mean [s]", "completion time, mean [s]",
-                         "grasp failures / slips / drops / other", "failed attempts per 100 boxes", "arm contacts",
-                         "closest arm approach [cm]"):
-                rows[name].append(values.get(name, "-"))
-    table(f"Manipulation: kinematic vs physics ({len([r for r in physical if float(r['blocked_pairs']) == 0]) // 3} "
-          "streams per configuration, ground-truth detections)", header, [[name] + cells for name, cells in rows.items()])
 
 # ---------------------------------------------------------------- perception: HSV vs YOLO vs SAM
 def partly_hidden(row: dict) -> str:
@@ -273,23 +241,6 @@ if rows_csv:
           [[d, f"{float(value[d, 'cv', horizons[0]]['step_mean_s']):.3f} / {float(value[d, 'cv', horizons[0]]['step_max_s']):.3f}"]
            + [f"{float(value[d, 'cv', h]['mean_error_mm']):.2f} / {float(value[d, 'kalman', h]['mean_error_mm']):.2f}" for h in horizons]
            for d in detectors])
-
-# ---------------------------------------------------------------- command mode
-rows = []
-for name, label in (("command.csv", "0.1 m/s, a box every 4 s"), ("command_fast.csv", "0.2 m/s, a box every 2 s")):
-    records = read(name)
-    if records:
-        n = len(records)
-        correct = [r for r in records if r["correct_color"] == "True" and r["correct_region"] == "True"]
-        times = [float(r["time"]) for r in correct]
-        rows.append([label, str(n), str(sum(r["parsed"] == "True" for r in records)),
-                     str(sum(r["correct_color"] == "True" for r in records)),
-                     str(sum(r["correct_region"] == "True" for r in records)), f"{len(correct) / n:.0%}",
-                     f"{np.mean(times):.1f} / {np.max(times):.1f}",
-                     f"{sum(r['robot'] == '1' for r in records)} / {sum(r['robot'] == '2' for r in records)}"])
-if rows:
-    table("Command mode: random commands", ["belt", "commands", "parsed", "correct color", "correct destination", "success rate",
-                                            "time mean / max [s]", "Robot 1 / Robot 2"], rows)
 
 # ---------------------------------------------------------------- command mode on physics (#109)
 records = read("command_physics.csv")
