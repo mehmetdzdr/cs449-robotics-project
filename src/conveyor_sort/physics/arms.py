@@ -17,6 +17,7 @@ from conveyor_sort.sim.scene import ROBOT_PREFIX, arm_joints
 MIN_DURATION = 0.1   # a path is never squeezed into less than this [s]
 KNOT_SPACING = 0.05  # the merged spline has a knot at least this often, so BotOp's spline stays close to the
                      # piecewise-linear references (fewer knots: the other arm deviated more when one is re-planned)
+MIN_KNOT = 0.011     # BotOp: the first spline knot must be at least 10 ms ahead [s]
 LATENCY = 0.1        # the arm follows BotOp's spline 0.1 s late (measured: joint error 74 to 82 mrad mean against
                      # the reference during a pick, 4 to 10 mrad against the reference shifted by 0.1 s), so every
                      # reference is sent this much earlier: the arm itself then arrives at the planned time
@@ -97,7 +98,9 @@ class ArmReferences:
         self.plans[robot_id] = (np.concatenate([[now], times]), np.vstack([self._reference(robot_id, now), waypoints]))
 
     def _send(self, now: float) -> None:
-        knots = np.concatenate([t[t > now + 1e-3] for t, _ in self.plans.values()])
+        # BotOp refuses a first knot less than 10 ms ahead ("SplineCtrlFeed ... too harsh"): a knot of the other arm's
+        # plan 5 ms ahead crashed the physics command benchmark; its reference is sampled at the later knots anyway
+        knots = np.concatenate([t[t > now + MIN_KNOT] for t, _ in self.plans.values()])
         if len(knots) == 0:
             return
         knots = np.unique(np.concatenate([knots, np.arange(now + KNOT_SPACING, knots.max(), KNOT_SPACING)]))
