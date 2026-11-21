@@ -34,7 +34,6 @@ class ExperimentConfig:
     duration: float | None = None         # simulation time [s]; None: until the last box has passed the belt
     mode: str = "single"                  # "single", "fixed" or "coordinated" (see MODES)
     blocked_pairs: float = 0.0            # share of spawns that are a gray box right in front of a colored one
-    physics: bool = False                 # BotOp physics backend (friction grasp, physical place) instead of kinematic
 
 
 def load_config(path: str | Path) -> ExperimentConfig:
@@ -83,7 +82,7 @@ def run_experiment(config: ExperimentConfig, on_step: Callable[[World], None] | 
         raise ValueError(f"unknown mode '{config.mode}'")
     roles, clear_and_sort = MODES[config.mode]
     world = World(ConveyorConfig(config.speed, config.spacing, color_weights=weights, seed=config.seed,
-                                 max_boxes=config.boxes, blocked_pairs=config.blocked_pairs), physics=config.physics)
+                                 max_boxes=config.boxes, blocked_pairs=config.blocked_pairs), physics=True)
     try:
         detect = get_detector(config.detector, world)
         belt = world.conveyor.geometry

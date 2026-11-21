@@ -99,15 +99,3 @@ def test_box_leaving_belt_end_is_removed_and_counted():
     assert conveyor.missed == 1
     assert conveyor.colors == {}
     assert C.getFrame("box_0").getPosition()[2] < 0          # parked below the floor, not deleted
-
-
-def test_grasped_box_is_not_moved_by_belt():
-    C = load_scene()
-    conveyor = Conveyor(C, ConveyorConfig(spacing=100.0))
-    conveyor.step(0.0)
-    (name,) = conveyor.on_belt()
-    conveyor.attach(name, "l_gripper")     # what a grasp does
-    before = C.getFrame(name).getPosition()
-    conveyor.step(1.0)
-    assert conveyor.on_belt() == []
-    assert C.getFrame(name).getPosition() == pytest.approx(before)

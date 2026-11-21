@@ -28,7 +28,7 @@ CONFIGS = [(0.1, 0.0), (0.2, 0.0), (0.1, 1.0), (0.2, 1.0)]   # (belt speed, bloc
 
 def chunk(args: tuple) -> list[dict]:
     speed, blocked, seed, n = args
-    return run_commands(random_commands(n, seed), speed, SPACING, seed, physics=True, blocked_pairs=blocked)
+    return run_commands(random_commands(n, seed), speed, SPACING, seed, blocked_pairs=blocked)
 
 
 def main() -> None:

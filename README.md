@@ -122,7 +122,7 @@ for 3 to 7 times the time.
 ### Command-mode correctness
 
 ```bash
-python evaluation/benchmark_command.py --n 40      # results/command.csv
+python evaluation/benchmark_command_physics.py --jobs 8   # results/command_physics.csv
 ```
 
 Random commands (color, destination and phrasing) are executed one after the other on a running belt and

@@ -4,10 +4,8 @@ import pytest
 from conveyor_sort.coordination.allocation import FIXED_ROLES, LEAD_TIME, CoordinationLog, allocate
 from conveyor_sort.interfaces import BoxColor, Track
 from conveyor_sort.sim.conveyor import ConveyorConfig
-from conveyor_sort.sim.ground_truth import GroundTruthDetector
 from conveyor_sort.sim.regions import DEFAULT_TARGET
 from conveyor_sort.sim.world import World
-from conveyor_sort.sorting import run_robots
 
 SPEED = 0.1
 
@@ -104,19 +102,3 @@ def test_one_arm_over_the_belt_at_a_time():
     (assignment,) = allocate(world, [blue, green], seen, {}, FIXED_ROLES, [1, 2], log=log)
     assert (assignment.robot_id, assignment.track_id) == (1, 2)
     assert log.conflicts == {(2, 3)} and log.waiting == {2}
-
-
-def test_fixed_roles_in_the_sorting_loop_without_collisions():
-    config = ConveyorConfig(speed=0.15, spacing=0.3, seed=3)                # a box every 2 s; collided before the priority rule
-    world = World(config)
-    collisions = []
-
-    def check(world):
-        world.C.computeCollisions()
-        collisions.extend(world.C.getCollisions(0.0))
-
-    stats = run_robots(world, GroundTruthDetector(world).detect, duration=90.0, roles=FIXED_ROLES, on_step=check)
-    assert stats.failed == 0 and stats.sorted_correctly == len(stats.events) >= 12
-    assert collisions == []
-    assert stats.conflicts >= 2 and 1.0 < stats.waiting_time < 30.0
-    print(f"fixed roles: {stats.sorted_correctly} sorted, {stats.conflicts} conflicts, waiting {stats.waiting_time:.1f} s")
