@@ -14,7 +14,8 @@ python scripts/run_autonomous.py --view      # autonomous mode (--mode single|fi
 python scripts/run_command.py "pick a blue box and place it at B" --view   # command mode (no command: type them in)
 python scripts/generate_dataset.py --n 2000 --out data/boxes [--preview]
 python evaluation/run_experiment.py evaluation/configs/example.json   # one run from a JSON config, metrics appended to results/runs.csv
-python evaluation/make_figures.py             # figures and tables of the report from results/*.csv (run the benchmark_*.py scripts first)
+python scripts/fetch_results.py              # YOLO weights and raw results of the GitHub Release the committed figures come from (#112)
+python evaluation/make_figures.py             # figures and tables of the report from results/*.csv (fetch them, or run the benchmark_*.py scripts)
 ```
 
 Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that renders must run under `xvfb-run -a`.
