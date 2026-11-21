@@ -3,6 +3,7 @@ name: CI
 # Pull requests and pushes to main run the fast tests (`-m "not slow"`); the full suite, with the slow physics
 # scenario tests, runs nightly and on demand (Actions tab -> CI -> Run workflow). A failed test is retried once
 # (physics tests run in real time and are not fully deterministic); reruns are listed in the summary (RERUN).
+# Two jobs with their own time limits: the full suite takes about 90 min (cancelled at 72 % with a 60 min limit, #173).
 on:
   push:
     branches: [main]
@@ -12,9 +13,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  fast:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,8 +29,22 @@ jobs:
       - name: Environment check
         run: xvfb-run -a python scripts/check_env.py
       - name: Tests (fast)
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
         run: xvfb-run -a pytest -q -m "not slow" --reruns 1 -rfER
+
+  full:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: System libraries for RAI rendering
+        run: sudo apt-get update && sudo apt-get install -y xvfb libglu1-mesa libgl1 liblapack3 libfreetype6 libxrandr2 libxxf86vm1 libxi6
+      - name: Install package
+        run: pip install -e ".[dev,eval]"
+      - name: Environment check
+        run: xvfb-run -a python scripts/check_env.py
       - name: Tests (full, with the slow physics scenarios)
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        run: xvfb-run -a pytest -q --reruns 1 -rfER
+        run: xvfb-run -a pytest -q --reruns 1 -rfER --durations=25
