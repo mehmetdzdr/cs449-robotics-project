@@ -28,6 +28,11 @@ _FULL_STATE: dict[int, tuple[np.ndarray, list[int]]] = {}   # id(komo) -> (full 
 # home or over its own regions, far from the belt.
 MARGIN = 0.03      # [m]
 NEAR_BELT = 0.25   # [m]
+# A place that starts close to the other arm resting at home (grippers within CLOSE, xy; the other one within NEAR_HOME
+# of the belt centre line) keeps MARGIN_HOME from it (#159): after a grasp at the far edge of the belt near its middle,
+# Robot 1's place motion passed Robot 2's resting wrist at distance 0 and touched it (2 of 30 runs in #108). Only the
+# place: with the margin also on the pick, the same far-edge grasps could not be planned (#106).
+MARGIN_HOME, NEAR_HOME, CLOSE = 0.022, 0.3, 0.35   # [m]
 _OWN_ARM_ONLY: set[int] = set()                               # id(C) of configs planned with own_arm_only
 
 
@@ -45,7 +50,7 @@ def own_arm_only(C: ry.Config):
         _OWN_ARM_ONLY.discard(id(C))
 
 
-def _komo(C: ry.Config, steps: int, robot_id: int) -> ry.KOMO:
+def _komo(C: ry.Config, steps: int, robot_id: int, resting_margin: bool = False) -> ry.KOMO:
     """KOMO over the arm joints (both arms, or only `robot_id`'s within `own_arm_only`). With active finger
     joints (physics backend, q has 16 entries) the fingers are not decision variables but keep their current
     value (they are not the planner's to move, see physics.arms); `_solve` puts the joints that are not planned
@@ -68,10 +73,15 @@ def _komo(C: ry.Config, steps: int, robot_id: int) -> ry.KOMO:
     _FULL_STATE[id(komo)] = q, planned
     other = next(r for r in ROBOT_PREFIX if r != robot_id)
     belt_y = C.getFrame("belt").getPosition()[1]
-    if own_only and MARGIN and abs(C.getFrame(f"{ROBOT_PREFIX[other]}gripper").getPosition()[1] - belt_y) < NEAR_BELT:
+    other_gripper = C.getFrame(f"{ROBOT_PREFIX[other]}gripper").getPosition()
+    off_centre = abs(other_gripper[1] - belt_y)
+    close = np.linalg.norm(C.getFrame(f"{ROBOT_PREFIX[robot_id]}gripper").getPosition()[:2] - other_gripper[:2]) < CLOSE
+    margin = (MARGIN if off_centre < NEAR_BELT else
+              MARGIN_HOME if resting_margin and close and off_centre < NEAR_HOME else 0.0)
+    if own_only and margin:
         for own_shape in _arm_shapes(C, robot_id):
             for other_shape in _arm_shapes(C, other):
-                komo.addObjective([], ry.FS.negDistance, [own_shape, other_shape], ry.OT.ineq, [1e1], [-MARGIN])
+                komo.addObjective([], ry.FS.negDistance, [own_shape, other_shape], ry.OT.ineq, [1e1], [-margin])
     return komo
 
 
@@ -137,7 +147,7 @@ def plan_place(C: ry.Config, robot_id: int, box: str, region: str, steps: int = 
     down (vertical descent at the end), `clearance` above its resting height."""
     gripper = f"{ROBOT_PREFIX[robot_id]}gripper"
     resting = [*offset, C.getFrame(region).getSize()[2] / 2 + BOX_SIZE / 2 + 0.001 + clearance]   # box centre, region frame
-    komo = _komo(C, steps, robot_id)
+    komo = _komo(C, steps, robot_id, resting_margin=True)
     komo.addControlObjective([], 2, 1e0)
     komo.addControlObjective([], 0, 1e-2)
     komo.addObjective([], ry.FS.accumulatedCollisions, [], ry.OT.eq, [1e0])
