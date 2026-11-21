@@ -26,9 +26,22 @@ jobs:
         run: pip install -e ".[dev,eval]"
       - name: Environment check
         run: xvfb-run -a python scripts/check_env.py
-      - name: Tests (fast)
+      - name: Tests (fast) under gdb, twice (diagnostic only, not to be merged)
         if: github.event_name == 'pull_request' || github.event_name == 'push'
-        run: xvfb-run -a pytest -q -m "not slow" --reruns 1 -rfER
+        run: |
+          sudo apt-get install -y gdb
+          for k in 1 2; do
+            echo "::group::fast suite, pass $k"
+            xvfb-run -a gdb -q -batch -ex "handle SIGPIPE nostop noprint" -ex run -ex "echo \n=== NATIVE STACK ===\n" -ex bt \
+              -ex "echo \n=== ALL THREADS ===\n" -ex "thread apply all bt 25" \
+              --args python -X faulthandler -m pytest -q -m "not slow" -p no:cacheprovider -rfE 2>&1 | tee pass$k.log | tail -150
+            echo "::endgroup::"
+            if grep -q "NATIVE STACK" pass$k.log && grep -q "SIGSEGV" pass$k.log; then
+              echo "::error::segmentation fault in pass $k, native stack above"
+              grep -n -A60 "SIGSEGV" pass$k.log | head -120
+              exit 1
+            fi
+          done
       - name: Tests (full, with the slow physics scenarios)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: xvfb-run -a pytest -q --reruns 1 -rfER
