@@ -63,7 +63,7 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 | `coordination/allocation.py` | `allocate(world, tracks, first_seen, blocked, roles, free_robots, busy_regions, shared_area_busy, log)`: at most one `Assignment` per free robot, most urgent (robot, box) pair first, one arm over the belt at a time (`shared_area_busy`, `CoordinationLog`); `FIXED_ROLES`, `PICK_X`, `LEAD_TIME` |
 | `coordination/clear_and_sort.py` | `blockers(track, tracks, time)`, `plan_clearing_job(...)` (#101): `ClearingJob` of `ClearingStep`s (removals from `plan_clearing`, each by a robot that owns the blocker's color and can pick it in time, via `destination`, then the target), steps `STEP_TIME` apart; returns a `ClearingDecision` (#102): `job` to start now, `later` (earliest start that finishes in time, searched every `SEARCH_STEP`), `infeasible` (reported in `SortingStats.infeasible`, left alone); used by `run_robots(..., clear_and_sort=True)` (steps one after another), outcomes in `SortingStats.clear_and_sort`. The buffer is unused since #154 (`BUFFER_ROBOTS` empty) |
 | `sorting.py` | `run_robots(world, detect, duration, roles=FIXED_ROLES)`: tracker + `allocate` + one `PickPlaceTask` per robot, both arms move at once, returns `SortingStats` (physics backend: `min_arm_distance`, `arm_contacts` from `physics/contacts.py`); `run_single_robot` |
-| `planning/pick_place.py` | `PickPlaceTask(world, assignment, track, across_belt, pick_only, drop, box)` (`box`: a box that is not on the belt, e.g. in the buffer): non-blocking, `advance()` before every `world.step()`, moves only its own arm; physical grasp and place on the physics backend (`result.place_error`, `result.tilt`); `pick_and_place(...)` is the blocking form, returns `PickPlaceResult` |
+| `planning/pick_place.py` | `PickPlaceTask(world, assignment, track, across_belt, pick_only, drop, box)` (`box`: a box that is not on the belt, e.g. in the buffer): non-blocking, `advance()` before every `world.step()`, moves only its own arm; physical grasp and place on the physics backend (`result.place_error`, `result.tilt`); outcome in `task.result` (`PickPlaceResult`) |
 
 ## Facts worth knowing
 
@@ -125,5 +125,5 @@ Open:
 ## Next steps, in order
 
 1. #115 (owner S. E. Hyder).
-2. #40 demo videos, #42 README and cleanup, #43 final report.
+2. #43 final report (demo videos: release `demos-2026-11-21`, linked from the README, #40).
 3. #117 branches (repository owner).

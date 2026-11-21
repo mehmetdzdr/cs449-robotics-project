@@ -5,7 +5,38 @@ CS449/549 term project, Bilkent University.
 Two manipulators in RAI share a moving conveyor. In **autonomous mode** Robot 1
 sorts colored boxes into target regions while Robot 2 removes gray boxes. In
 **command mode** a user instruction like *"pick a blue box and place it at B"*
-is executed by choosing a matching box and robot.
+is executed by choosing a matching box and robot. The robots stand on opposite sides of the belt at its
+middle and work in the BotOp physics simulation (PhysX, real time): boxes are held by friction between the
+fingers and placed physically.
+
+### Results at a glance
+
+| | |
+|---|---|
+| Detection (HSV / YOLO / YOLO + SAM, top camera) | 99 to 100 % recall at normal lighting, position error 1.6 to 1.9 mm mean |
+| Prediction, 3 s ahead, 2 mm noise | 4.1 mm (Kalman, after 2 s of tracking), 6.5 mm (window fit) |
+| Boxes sorted, 36 streams, 0.05 to 0.15 m/s | Robot 1 alone 35 %, two robots 54 to 55 % (82 % at 0.05 m/s) |
+| Grasps that hold / placed boxes in the right region | 95 to 100 % / 100 % |
+| Command mode, 160 random commands | 82 to 100 % correct |
+| Scenario matrix (speed x position x neighbours) | 68 of 68 cells as expected, no arm contact |
+
+Details and the commands that reproduce every number are under [Experiments](#experiments).
+
+### Demo videos
+
+Top-camera recordings (BotOp physics, real time), in the release
+[demos-2026-11-21](https://github.com/mehmetdzdr/cs449-robotics-project/releases/tag/demos-2026-11-21):
+
+| video | command |
+|---|---|
+| [autonomous_coordinated_gt.mp4](https://github.com/mehmetdzdr/cs449-robotics-project/releases/download/demos-2026-11-21/autonomous_coordinated_gt.mp4): both robots, ground-truth detections, 60 s: 7 of 7 sorted | `run_autonomous.py --mode coordinated --duration 60` |
+| [autonomous_coordinated_hsv.mp4](https://github.com/mehmetdzdr/cs449-robotics-project/releases/download/demos-2026-11-21/autonomous_coordinated_hsv.mp4): the same with the HSV detector in the loop: 4 sorted, 4 picks failed | `run_autonomous.py --mode coordinated --detector hsv --duration 60` |
+| [command_mode.mp4](https://github.com/mehmetdzdr/cs449-robotics-project/releases/download/demos-2026-11-21/command_mode.mp4): three commands in a row | `run_command.py "pick a red box and place it at A" "put a gray box into the bin" "pick a green box and place it at B"` |
+| [clear_and_sort.mp4](https://github.com/mehmetdzdr/cs449-robotics-project/releases/download/demos-2026-11-21/clear_and_sort.mp4): Robot 2 removes a gray box blocking a red one, Robot 1 sorts the red box | `run_autonomous.py --scene clear-and-sort --duration 50` |
+
+With a detector in the loop more picks fail. Every frame is rendered (about 0.15 s) while the physics runs on
+in real time, so the tracks are probably late (not yet measured). The manipulation benchmarks below use
+ground-truth detections; the detectors are measured separately.
 
 ## Pipeline
 
@@ -38,8 +69,13 @@ upstream module is ready.
 
 ## Setup
 
+`robotic` (RAI) has Linux wheels only: on Windows, work inside WSL (Ubuntu). Headless Linux (SSH, CI, WSL
+without a display) needs `sudo apt install libglu1-mesa liblapack3 xvfb` and `xvfb-run -a` in front of every
+command that renders (see Troubleshooting).
+
 ```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+git clone https://github.com/mehmetdzdr/cs449-robotics-project.git && cd cs449-robotics-project
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"            # core: robotic (RAI), numpy, opencv
 pip install -e ".[learning]"       # optional: YOLO, SAM
 python scripts/check_env.py        # must end with ENVIRONMENT OK
@@ -47,7 +83,7 @@ python scripts/view_scene.py       # opens the scene in the RAI viewer
 python scripts/run_conveyor.py --view   # boxes moving on the belt, no robots
 python scripts/run_autonomous.py --view   # autonomous mode: two coordinated robots sort the boxes
 python scripts/run_command.py "pick a blue box and place it at B" --view   # command mode
-pytest
+pytest -m "not slow"                # fast suite (as in every PR); plain `pytest` adds the slow physics scenarios
 ```
 
 Requires Python 3.10 or newer.

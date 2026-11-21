@@ -1,6 +1,6 @@
 """Planning interface for the rest of the system: carry out one Assignment (pick a moving box, place it, go home)."""
 from dataclasses import dataclass
-from typing import Callable, Iterator
+from typing import Iterator
 
 import numpy as np
 
@@ -314,14 +314,3 @@ class PickPlaceTask:
         result.success = region_contains(C, region, frame.getPosition()) and result.tilt < MAX_TILT
         if not result.success:
             result.failed_stage = "release"
-
-
-def pick_and_place(world: World, assignment: Assignment, track: Track,
-                   on_step: Callable[[World], None] | None = None) -> PickPlaceResult:
-    """Blocking form of `PickPlaceTask`: runs the world until the assignment has ended (`on_step` after every step)."""
-    task = PickPlaceTask(world, assignment, track)
-    while task.advance():
-        world.step()
-        if on_step:
-            on_step(world)
-    return task.result
