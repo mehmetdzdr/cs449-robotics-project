@@ -112,19 +112,18 @@ Headless Linux needs `libglu1-mesa`, `liblapack3`, `xvfb`; every command that re
 
 ## Status (last updated 2026-11-21)
 
-Done and merged: M0 to M11 except #112; the layout with the robots on opposite sides of the belt (#154, PR #157), the scenario matrix (#106), the clearing benchmark (#108), perception with occlusion (#110), the far-edge margin (#159). The kinematic grasp and release are being removed (#113).
+Done and merged: M0 to M11; the layout with the robots on opposite sides of the belt (#154, PR #157); the scenario matrix (#106), the clearing benchmark (#108), perception with occlusion (#110), the far-edge margin (#159); reproducible results (#112: release `results-2026-11-21`, `scripts/fetch_results.py`); M12 #113 (kinematic grasp and release removed) and #114 (kinematic path playback removed); the CI segfault (#164: a BotOp kept alive by a detector's camera after `World.close` was destroyed later in garbage collection and crashed in PhysX).
 
-Measured on physics (#154 layout, `evaluation/figures/tables.md`): manipulation benchmark sorted 34.6 / 54.8 / 53.7 % (single / fixed / coordinated, 36 streams each), 0 arm contacts in 117 runs; blocked pairs: coordinated 66.7 %. Command mode 145 of 160 commands correct. Scenario matrix 68 of 68 cells as expected (boxes above 0.25 m/s are not picked). Clearing benchmark: 540 runs as expected, 0 contacts. Perception unchanged by the layout (recall 100 % for YOLO / SAM; HSV 90 % under 40 % darker or brighter light); a box under the hand is not seen, the tracker bridges 2.4 s.
+Measured on physics (#154 layout, `evaluation/figures/tables.md`): manipulation benchmark sorted 34.6 / 54.8 / 53.7 % (single / fixed / coordinated, 36 streams each), 0 arm contacts in 117 runs; blocked pairs: coordinated 66.7 %. Command mode 145 of 160 commands correct. Scenario matrix 68 of 68 cells as expected (boxes above 0.25 m/s are not picked). Clearing benchmark: 540 runs as expected, 0 contacts. Perception unchanged by the layout (recall 100 % for YOLO / SAM; HSV 90 % under 40 % darker or brighter light); a box under the hand is not seen, the tracker bridges 2.4 s. Prediction on the physical belt: window fit 1.7 to 1.9 mm, Kalman 2.1 to 3.7 mm (0.5 to 3 s ahead).
 
 Open:
-- CI on main: about 4 of 10 runs end in a segmentation fault during garbage collection since #154 (not reproducible on Python 3.14; being investigated on 3.12).
+- #115 (kinematic conveyor and its workarounds, S. E. Hyder): the physics conveyor also drives boxes by pose writes, parking below the floor is needed under BotOp, and the kinematic conveyor carries the planning, perception and dataset scenes.
 - #1 stays open until every member has run `check_env.py` on their own machine.
-- Merged branches still exist on GitHub (delete manually or enable auto-delete, #117).
+- Merged branches still exist on GitHub (#117: delete manually or enable auto-delete; repository owner).
 - `robotic` has Linux wheels only: on Windows use WSL.
 
 ## Next steps, in order
 
-1. The CI segmentation fault (above).
-2. M12: #113 kinematic grasp and release, #114 kinematic path playback, #115 kinematic conveyor and its workarounds.
-3. #112 reproducible results (YOLO weights and results CSVs as a GitHub Release), then #116 docs (README numbers from physics, retire the kinematic tables).
-4. #40 demo videos, #42 README and cleanup, #43 final report; #117 branches.
+1. #115 (owner S. E. Hyder).
+2. #40 demo videos, #42 README and cleanup, #43 final report.
+3. #117 branches (repository owner).

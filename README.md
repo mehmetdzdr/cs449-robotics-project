@@ -83,9 +83,11 @@ python scripts/run_command.py --view                             # type commands
 python evaluation/run_experiment.py evaluation/configs/example.json --out results/runs.csv
 ```
 
-The JSON config sets belt speed, box spacing, number of boxes, color distribution, seed and detector. Each run
-appends one row to the CSV: grasp success rate, sorting accuracy, missed boxes, planning time, completion time
-and throughput (boxes per minute).
+The JSON config sets belt speed, box spacing, number of boxes, color distribution, seed, detector and mode (single,
+fixed, coordinated). Every run is a BotOp physics simulation in real time (friction grasp, physical place; the
+kinematic backend was removed in #113 and #114). Each run appends one row to the CSV: grasp success rate, sorting
+accuracy, missed boxes, failures by stage (grasp, slip, drop, ...), planning time, completion time, throughput
+(boxes per minute), tracking error and arm contacts.
 
 ### Perception benchmark
 
