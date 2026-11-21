@@ -41,13 +41,13 @@ class CoverResult:
     planning_time: float = 0.0      # summed KOMO solve time [s]
     cover: str | None = None        # frame name of the grasped cover
     grasped_at: float | None = None   # time the fingers closed on the knob [s]
-    lift_started: float | None = None   # time the lift began: the box under the cover is free from about then [s]
+    lift_started: float | None = None   # time the lift motion began (after any wait for the other arm): the box
+    #                                     under the cover is free from about then [s]
     lifted_at: float | None = None  # time the cover was checked lifted off its box (after the lift) [s]
     lifted_from: np.ndarray | None = None   # knob position at the grasp (the box is below it) [m]
     carry_tilt: float = 0.0         # largest tilt of the cover in the gripper (lift and place) [deg]
     place_error: float | None = None  # cover to spot centre, xy [m]
     tilt: float | None = None       # cover tilt on the spot [deg]
-    trace: list = None              # TEMPORARY (#177 debugging): (stage, time, cover xy error to spot, tilt, waits)
 
 
 def plan_home_clear(C: ry.Config, robot_id: int, cover: str, steps: int = 20) -> Plan:
@@ -110,14 +110,6 @@ class CoverTask:
         others = [r for r in world.fingers if r != robot]
         gripper = C.getFrame(f"{ROBOT_PREFIX[robot]}gripper")
 
-        result.trace = []
-
-        def note(stage: str) -> None:
-            if result.cover is not None:
-                spot_xy = C.getFrame(COVER_SPOT).getPosition()[:2]
-                result.trace.append((stage, round(world.time, 2), round(float(np.linalg.norm(
-                    C.getFrame(result.cover).getPosition()[:2] - spot_xy)), 3), round(tilt(C, result.cover), 1), self.waits))
-
         def too_close(path, duration: float) -> bool:
             now = world.time + world._t0
             return (any(world.arms.moving_until(r) > now for r in others)
@@ -140,6 +132,8 @@ class CoverTask:
             if not plan.feasible or too_close(plan.path, duration):
                 result.failed_stage = result.failed_stage or stage
                 return False
+            if stage == "lift":
+                result.lift_started = world.time
             for _ in follow_path(world, plan.path, duration, robot):
                 if carrying is not None:
                     result.carry_tilt = max(result.carry_tilt, tilt(C, carrying))
@@ -147,7 +141,6 @@ class CoverTask:
                         result.failed_stage = result.failed_stage or "drop"
                         return False
                 yield True
-            note(stage)
             return True
 
         def wait(duration: float) -> Iterator[bool]:
@@ -212,7 +205,6 @@ class CoverTask:
                 return plan_lift(C, robot)
 
         gripper_z, cover_z = gripper.getPosition()[2], C.getFrame(cover).getPosition()[2]
-        result.lift_started = world.time
         lifted = yield from run("lift", lift, LIFT_TIME, carrying=cover)
         self.at_belt = self.at_belt and not lifted
         if lifted:
@@ -240,11 +232,8 @@ class CoverTask:
                 yield from run("carry", carry, HOME_TIME, carrying=cover)
             if result.failed_stage is None:
                 placed = yield from run("place", place, PLACE_TIME, carrying=cover)
-        note("placed")
         yield from let_go(cover)
-        note("released")
         left = yield from leave(cover)
-        note("home")
         if not (left and placed):
             return
         position = C.getFrame(cover).getPosition()
